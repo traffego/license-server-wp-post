@@ -77,13 +77,8 @@ try {
     }
 
 } catch ( PDOException $e ) {
-    // Em caso de erro, exibir ou logar dependendo do contexto
-    if ( count( get_included_files() ) === 1 ) {
-        http_response_code( 500 );
-        exit( 'Falha de conexão com o banco de dados: ' . $e->getMessage() );
-    } else {
-        throw $e;
-    }
+    http_response_code( 500 );
+    exit( 'Falha de conexão com o banco de dados MySQL: ' . htmlspecialchars( $e->getMessage() ) );
 }
 
 /**
