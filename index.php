@@ -175,6 +175,22 @@ $db = get_db_connection();
 $message = '';
 $error = '';
 
+// Salvar configurações do Asaas
+if ( isset( $_POST['save_asaas_settings'] ) ) {
+    $api_key  = trim( $_POST['asaas_api_key'] ?? '' );
+    $env      = trim( $_POST['asaas_environment'] ?? 'sandbox' );
+    $pay_link = trim( $_POST['asaas_payment_link'] ?? '' );
+    
+    try {
+        set_setting( 'asaas_api_key', $api_key );
+        set_setting( 'asaas_environment', $env );
+        set_setting( 'asaas_payment_link', $pay_link );
+        $message = "Configurações do Asaas salvas com sucesso.";
+    } catch ( Exception $e ) {
+        $error = "Erro ao salvar configurações: " . $e->getMessage();
+    }
+}
+
 // Criar nova licença
 if ( isset( $_POST['create_license'] ) ) {
     $email = filter_var( $_POST['email'] ?? '', FILTER_VALIDATE_EMAIL );
@@ -260,19 +276,22 @@ $licenses = $stmt->fetchAll();
 // Testar Asaas API
 $asaas_status = 'Não configurado';
 $asaas_class = 'status-inactive';
-if ( defined( 'ASAAS_API_KEY' ) && ! empty( ASAAS_API_KEY ) && ASAAS_API_KEY !== 'sua_chave_asaas_aqui' ) {
+$db_api_key  = get_setting( 'asaas_api_key', '' );
+$db_env      = get_setting( 'asaas_environment', 'sandbox' );
+
+if ( ! empty( $db_api_key ) ) {
     $ch = curl_init( get_asaas_base_url() . '/v3/customers?limit=1' );
     curl_setopt_array( $ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 5,
-        CURLOPT_HTTPHEADER     => [ 'access_token: ' . ASAAS_API_KEY ],
+        CURLOPT_HTTPHEADER     => [ 'access_token: ' . $db_api_key ],
     ] );
     $res = curl_exec( $ch );
     $code = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
     curl_close( $ch );
     
     if ( $code === 200 ) {
-        $asaas_status = 'Conectado (' . strtoupper( ASAAS_ENV ) . ')';
+        $asaas_status = 'Conectado (' . strtoupper( $db_env ) . ')';
         $asaas_class = 'status-active';
     } else {
         $asaas_status = 'Erro de Conexão (HTTP ' . $code . ')';
@@ -537,6 +556,28 @@ if ( defined( 'ASAAS_API_KEY' ) && ! empty( ASAAS_API_KEY ) && ASAAS_API_KEY !==
                             </select>
                         </div>
                         <button type="submit" name="create_license" class="btn btn-primary" style="width:100%;">Gerar Licença</button>
+                    </form>
+                </div>
+
+                <div class="card" style="margin-top: 30px;">
+                    <h2>Configurações do Asaas</h2>
+                    <form action="" method="POST">
+                        <div class="form-group">
+                            <label for="asaas_api_key">Chave de API Asaas</label>
+                            <input type="password" name="asaas_api_key" id="asaas_api_key" value="<?php echo esc_html( get_setting( 'asaas_api_key' ) ); ?>" placeholder="$aact_...">
+                        </div>
+                        <div class="form-group">
+                            <label for="asaas_environment">Ambiente</label>
+                            <select name="asaas_environment" id="asaas_environment">
+                                <option value="sandbox" <?php selected( get_setting( 'asaas_environment', 'sandbox' ), 'sandbox' ); ?>>Sandbox (Testes)</option>
+                                <option value="production" <?php selected( get_setting( 'asaas_environment', 'sandbox' ), 'production' ); ?>>Produção</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="asaas_payment_link">Link de Pagamento Padrão</label>
+                            <input type="url" name="asaas_payment_link" id="asaas_payment_link" value="<?php echo esc_html( get_setting( 'asaas_payment_link' ) ); ?>" placeholder="https://www.asaas.com/c/...">
+                        </div>
+                        <button type="submit" name="save_asaas_settings" class="btn btn-primary" style="width:100%;">Salvar Configurações</button>
                     </form>
                 </div>
             </div>

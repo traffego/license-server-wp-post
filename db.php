@@ -49,6 +49,25 @@ try {
         ) ENGINE=InnoDB;
     " );
 
+    // 4. Criar tabela 'settings' se não existir
+    $pdo->exec( "
+        CREATE TABLE IF NOT EXISTS `settings` (
+            `key_name` VARCHAR(255) PRIMARY KEY,
+            `key_value` TEXT
+        ) ENGINE=InnoDB;
+    " );
+
+    // Inicializar configurações padrões se vazias
+    $defaults = [
+        'asaas_api_key'      => '',
+        'asaas_environment'  => 'sandbox',
+        'asaas_payment_link' => '',
+    ];
+    foreach ( $defaults as $key => $val ) {
+        $stmt = $pdo->prepare( "INSERT IGNORE INTO settings (key_name, key_value) VALUES (?, ?)" );
+        $stmt->execute( [ $key, $val ] );
+    }
+
 } catch ( PDOException $e ) {
     // Em caso de erro, exibir ou logar dependendo do contexto
     if ( count( get_included_files() ) === 1 ) {
@@ -65,4 +84,43 @@ try {
 function get_db_connection(): PDO {
     global $pdo;
     return $pdo;
+}
+
+/**
+ * Retorna uma configuração do banco MySQL.
+ */
+function get_setting( string $key, string $default = '' ): string {
+    try {
+        $db = get_db_connection();
+        $stmt = $db->prepare( "SELECT key_value FROM settings WHERE key_name = ? LIMIT 1" );
+        $stmt->execute( [ $key ] );
+        $row = $stmt->fetch();
+        return $row ? (string) $row['key_value'] : $default;
+    } catch ( Exception $e ) {
+        return $default;
+    }
+}
+
+/**
+ * Atualiza ou insere uma configuração no banco.
+ */
+function set_setting( string $key, string $value ): void {
+    try {
+        $db = get_db_connection();
+        $stmt = $db->prepare( "INSERT INTO settings (key_name, key_value) VALUES (?, ?) 
+                               ON DUPLICATE KEY UPDATE key_value = ?" );
+        $stmt->execute( [ $key, $value, $value ] );
+    } catch ( Exception $e ) {
+        // Ignorar ou logar
+    }
+}
+
+/**
+ * Retorna a URL base do Asaas de acordo com o ambiente no banco.
+ */
+function get_asaas_base_url(): string {
+    $env = get_setting( 'asaas_environment', 'sandbox' );
+    return $env === 'production'
+        ? 'https://api.asaas.com'
+        : 'https://sandbox.asaas.com/api';
 }

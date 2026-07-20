@@ -85,17 +85,19 @@ try {
         'status'       => 'ACTIVE',
         'expires'      => $expires,
         'client_email' => $license['client_email'],
+        'payment_link' => get_setting( 'asaas_payment_link', '#' ),
     ];
     
     $payload_str = json_encode( $payload );
     $signature   = hash_hmac( 'sha256', $payload_str, JWT_SECRET );
     
     echo json_encode( [
-        'success'   => true,
-        'message'   => 'Licença ativada com sucesso.',
-        'token'     => base64_encode( $payload_str ),
-        'signature' => $signature,
-        'expires'   => $expires,
+        'success'      => true,
+        'message'      => 'Licença ativada com sucesso.',
+        'token'        => base64_encode( $payload_str ),
+        'signature'    => $signature,
+        'expires'      => $expires,
+        'payment_link' => get_setting( 'asaas_payment_link', '#' ),
     ] );
 
 } catch ( Exception $e ) {
