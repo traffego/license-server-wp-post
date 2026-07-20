@@ -41,7 +41,7 @@ echo "2. URL do Servidor de Teste: {$server_url}\n";
 $domain = "localhost";
 echo "\n3. Testando Endpoint de Ativação (api/activate.php)...\n";
 
-$ch = curl_init( "http://localhost/plugin_wp_posts/license-server/api/activate.php" ); // Fallback para path padrão se não estiver usando servidor embutido
+$ch = curl_init( "http://localhost/plugin_wp_posts/license-server-wp-post/api/activate.php" ); // Fallback para path padrão se não estiver usando servidor embutido
 // Se o usuário rodar no PHP server na porta 8000:
 // Tenta primeiro o local se soubermos, mas vamos usar um cURL local relativo se o servidor web rodar.
 // Para fins de flexibilidade, vamos testar diretamente chamando os arquivos PHP internamente (incluindo-os e passando parâmetros $_POST fictícios)!

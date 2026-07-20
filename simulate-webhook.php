@@ -67,7 +67,7 @@ echo json_encode( $payload, JSON_PRETTY_PRINT ) . "\n\n";
 
 echo "Para disparar essa simulação contra o seu servidor online, rode o seguinte comando cURL:\n";
 $cmd = sprintf(
-    "curl -X POST -H \"Content-Type: application/json\" -d '%s' http://seu-dominio.com/license-server/api/webhook-asaas.php",
+    "curl -X POST -H \"Content-Type: application/json\" -d '%s' http://seu-dominio.com/license-server-wp-post/api/webhook-asaas.php",
     json_encode( $payload )
 );
 echo "\n" . $cmd . "\n\n";
