@@ -6,22 +6,30 @@
 require_once __DIR__ . '/config.php';
 
 try {
-    // 1. Tentar conectar ao servidor MySQL (sem especificar banco inicialmente, para criá-lo se necessário)
-    $dsn = "mysql:host=" . DB_HOST . ";charset=utf8mb4";
     $options = [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES   => false,
     ];
-    
-    $pdo = new PDO( $dsn, DB_USER, DB_PASS, $options );
-    
-    // Criar o banco de dados se não existir
-    $db_name_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', DB_NAME );
-    $pdo->exec( "CREATE DATABASE IF NOT EXISTS `{$db_name_safe}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" );
-    
-    // Conectar ao banco de dados específico
-    $pdo->exec( "USE `{$db_name_safe}`;" );
+
+    // Conectar diretamente ao banco para evitar erro de privilégios de "CREATE DATABASE" em hospedagem compartilhada
+    try {
+        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+        $pdo = new PDO( $dsn, DB_USER, DB_PASS, $options );
+    } catch ( PDOException $e ) {
+        // Código de erro 1049 indica banco inexistente. Tenta criar se for ambiente local
+        if ( $e->getCode() === 1049 || strpos( $e->getMessage(), 'Unknown database' ) !== false ) {
+            $dsn_temp = "mysql:host=" . DB_HOST . ";charset=utf8mb4";
+            $pdo_temp = new PDO( $dsn_temp, DB_USER, DB_PASS, $options );
+            $db_name_safe = preg_replace( '/[^a-zA-Z0-9_]/', '', DB_NAME );
+            $pdo_temp->exec( "CREATE DATABASE IF NOT EXISTS `{$db_name_safe}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" );
+            
+            // Tenta conectar novamente ao banco recém-criado
+            $pdo = new PDO( "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4", DB_USER, DB_PASS, $options );
+        } else {
+            throw $e;
+        }
+    }
     
     // 2. Criar tabela 'licenses' se não existir
     $pdo->exec( "
