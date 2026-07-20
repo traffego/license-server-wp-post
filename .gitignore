@@ -1,0 +1,5 @@
+config.php
+node_modules/
+.env
+data/auth_info
+*.db
