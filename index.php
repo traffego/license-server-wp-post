@@ -574,8 +574,13 @@ if ( ! empty( $db_api_key ) ) {
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="asaas_payment_link">Link de Pagamento Padrão</label>
-                            <input type="url" name="asaas_payment_link" id="asaas_payment_link" value="<?php echo esc_html( get_setting( 'asaas_payment_link' ) ); ?>" placeholder="https://www.asaas.com/c/...">
+                            <label for="asaas_payment_link">Link de Pagamento Padrão (Se em branco, usará o Checkout abaixo)</label>
+                            <input type="url" name="asaas_payment_link" id="asaas_payment_link" value="<?php echo esc_html( get_setting( 'asaas_payment_link' ) ); ?>" placeholder="https://.../checkout.php">
+                        </div>
+                        <div class="form-group" style="margin-top: 15px; background: rgba(124,58,237,0.1); padding: 12px; border-radius: 8px; border: 1px solid rgba(124,58,237,0.2);">
+                            <label style="color:#a78bfa;">Link do Checkout Público Integrado</label>
+                            <?php $checkout_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['REQUEST_URI'] ?? ''), '/\\') . "/checkout.php"; ?>
+                            <input type="text" readonly value="<?php echo esc_html($checkout_url); ?>" onclick="this.select()" style="font-size:12px; font-family:monospace; cursor:pointer;">
                         </div>
                         <button type="submit" name="save_asaas_settings" class="btn btn-primary" style="width:100%;">Salvar Configurações</button>
                     </form>
