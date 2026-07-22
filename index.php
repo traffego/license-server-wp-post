@@ -173,7 +173,7 @@ if ( ! $authenticated ) {
 
 // ── Se logado, processar requisições e roteamento ─────────────────────────────
 $db   = get_db_connection();
-$page = $_GET['page'] ?? 'licenses';
+$view = $_GET['view'] ?? 'licenses';
 
 $message = '';
 $error   = '';
@@ -425,20 +425,20 @@ function esc_html( $str ) {
         </a>
 
         <ul class="nav-links">
-            <li class="nav-item <?php echo $page === 'licenses' ? 'active' : ''; ?>">
-                <a href="index.php?page=licenses">
+            <li class="nav-item <?php echo $view === 'licenses' ? 'active' : ''; ?>">
+                <a href="index.php?view=licenses">
                     <i data-lucide="key"></i>
                     Licenças
                 </a>
             </li>
-            <li class="nav-item <?php echo $page === 'plans' ? 'active' : ''; ?>">
-                <a href="index.php?page=plans">
+            <li class="nav-item <?php echo $view === 'plans' ? 'active' : ''; ?>">
+                <a href="index.php?view=plans">
                     <i data-lucide="package"></i>
                     Planos de Assinatura
                 </a>
             </li>
-            <li class="nav-item <?php echo $page === 'settings' ? 'active' : ''; ?>">
-                <a href="index.php?page=settings">
+            <li class="nav-item <?php echo $view === 'settings' ? 'active' : ''; ?>">
+                <a href="index.php?view=settings">
                     <i data-lucide="sliders"></i>
                     Configurações Asaas
                 </a>
@@ -468,7 +468,7 @@ function esc_html( $str ) {
             </div>
         <?php endif; ?>
 
-        <?php if ( $page === 'plans' ): ?>
+        <?php if ( $view === 'plans' ): ?>
             <!-- ── PÁGINA 2: PLANOS DE ASSINATURA ────────────────────────────── -->
             <div class="page-title">
                 <i data-lucide="package" style="color: var(--accent);"></i>
@@ -482,7 +482,7 @@ function esc_html( $str ) {
                         <i data-lucide="plus-circle" style="color: var(--accent);"></i>
                         Novo Plano
                     </h2>
-                    <form action="index.php?page=plans" method="POST">
+                    <form action="index.php?view=plans" method="POST">
                         <div class="form-group">
                             <label for="plan_name">Nome do Plano</label>
                             <input type="text" name="plan_name" id="plan_name" required placeholder="Ex: Plano Mensal, Anual">
@@ -528,7 +528,7 @@ function esc_html( $str ) {
                                             <td style="color: #34d399; font-weight: 800; font-size: 16px;">R$ <?php echo number_format( $p['price'], 2, ',', '.' ); ?></td>
                                             <td><span class="badge badge-active"><?php echo $p['duration_days']; ?> dias</span></td>
                                             <td>
-                                                <a href="index.php?page=plans&delete_plan=<?php echo $p['id']; ?>" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('Excluir este plano?')">
+                                                <a href="index.php?view=plans&delete_plan=<?php echo $p['id']; ?>" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('Excluir este plano?')">
                                                     <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
                                                     Excluir
                                                 </a>
@@ -542,7 +542,7 @@ function esc_html( $str ) {
                 </div>
             </div>
 
-        <?php elseif ( $page === 'settings' ): ?>
+        <?php elseif ( $view === 'settings' ): ?>
             <!-- ── PÁGINA 3: CONFIGURAÇÕES ASAAS ──────────────────────────────── -->
             <div class="page-title">
                 <i data-lucide="sliders" style="color: var(--accent);"></i>
@@ -563,7 +563,7 @@ function esc_html( $str ) {
                         </span>
                     </div>
 
-                    <form action="index.php?page=settings" method="POST">
+                    <form action="index.php?view=settings" method="POST">
                         <div class="form-group">
                             <label for="asaas_api_key">Chave de API Asaas (access_token)</label>
                             <input type="password" name="asaas_api_key" id="asaas_api_key" value="<?php echo esc_html( get_setting( 'asaas_api_key' ) ); ?>" placeholder="$aact_...">
@@ -638,7 +638,7 @@ function esc_html( $str ) {
                     </h2>
                     <button class="btn btn-secondary" onclick="document.getElementById('modal-create').style.display='none';" style="padding: 6px 12px;">Fechar</button>
                 </div>
-                <form action="index.php?page=licenses" method="POST">
+                <form action="index.php?view=licenses" method="POST">
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                         <div class="form-group">
                             <label for="email">E-mail do Cliente</label>
@@ -676,7 +676,7 @@ function esc_html( $str ) {
                         Licenças Cadastradas (<?php echo count($licenses); ?>)
                     </h2>
                     <form action="index.php" method="GET" style="display: flex; gap: 8px;">
-                        <input type="hidden" name="page" value="licenses">
+                        <input type="hidden" name="view" value="licenses">
                         <input type="text" name="search" placeholder="Buscar chave ou e-mail..." value="<?php echo esc_html( $search ); ?>" style="width: 260px;">
                         <button type="submit" class="btn btn-secondary">
                             <i data-lucide="search"></i>
@@ -729,23 +729,23 @@ function esc_html( $str ) {
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <form action="index.php?page=licenses" method="POST" style="display: inline;">
+                                            <form action="index.php?view=licenses" method="POST" style="display: inline;">
                                                 <input type="hidden" name="license_id" value="<?php echo $lic['id']; ?>">
                                                 <select name="status" onchange="this.form.submit()" style="padding: 6px 10px; font-size: 12px; font-weight: 700; width: auto;">
-                                                    <option value="ACTIVE" <?php selected( $lic['status'], 'ACTIVE' ); ?>>🟢 Ativo</option>
-                                                    <option value="SUSPENDED" <?php selected( $lic['status'], 'SUSPENDED' ); ?>>🟠 Suspenso</option>
-                                                    <option value="EXPIRED" <?php selected( $lic['status'], 'EXPIRED' ); ?>>🔴 Expirado</option>
+                                                    <option value="ACTIVE" <?php selected( $lic['status'], 'ACTIVE' ); ?>>Ativo</option>
+                                                    <option value="SUSPENDED" <?php selected( $lic['status'], 'SUSPENDED' ); ?>>Suspenso</option>
+                                                    <option value="EXPIRED" <?php selected( $lic['status'], 'EXPIRED' ); ?>>Expirado</option>
                                                 </select>
                                                 <input type="hidden" name="update_status" value="1">
                                             </form>
                                         </td>
                                         <td>
                                             <div style="display: flex; gap: 6px;">
-                                                <a href="index.php?page=licenses&clear_domains=<?php echo $lic['id']; ?>" class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;" title="Resetar Domínio" onclick="return confirm('Liberar domínios da licença?')">
+                                                <a href="index.php?view=licenses&clear_domains=<?php echo $lic['id']; ?>" class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;" title="Resetar Domínio" onclick="return confirm('Liberar domínios da licença?')">
                                                     <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
                                                     Reset
                                                 </a>
-                                                <a href="index.php?page=licenses&delete_license=<?php echo $lic['id']; ?>" class="btn btn-danger" style="padding: 6px 10px; font-size: 12px;" title="Excluir" onclick="return confirm('Excluir licença?')">
+                                                <a href="index.php?view=licenses&delete_license=<?php echo $lic['id']; ?>" class="btn btn-danger" style="padding: 6px 10px; font-size: 12px;" title="Excluir" onclick="return confirm('Excluir licença?')">
                                                     <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
                                                 </a>
                                             </div>
