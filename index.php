@@ -436,6 +436,29 @@ function esc_html( $str ) {
         .badge-inactive { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
         .badge-error { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
 
+        /* Modal Blur Overlay */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(11, 8, 19, 0.75);
+            backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        .modal-box {
+            background: #161224;
+            border: 1px solid rgba(124, 58, 237, 0.4);
+            border-radius: 24px;
+            padding: 32px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 50px rgba(124, 58, 237, 0.15);
+            position: relative;
+        }
+
         .domain-tag { display: inline-block; background: rgba(124, 58, 237, 0.15); color: #c4b5fd; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-family: monospace; margin: 2px; }
         .alert { padding: 14px 18px; border-radius: 12px; font-size: 14px; margin-bottom: 24px; display: flex; align-items: center; gap: 10px; }
         .alert-success { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; }
@@ -497,50 +520,78 @@ function esc_html( $str ) {
 
         <?php if ( $view === 'plans' ): ?>
             <!-- ── PÁGINA 2: PLANOS DE ASSINATURA ────────────────────────────── -->
+
+            <!-- Modal de Edição de Plano com Blur no Fundo -->
+            <?php if ( $edit_plan_data ): ?>
+                <div class="modal-backdrop">
+                    <div class="modal-box">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                            <h2 style="font-size: 20px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 10px;">
+                                <i data-lucide="edit-3" style="color: var(--accent);"></i>
+                                Editar Plano: <span style="color: #c4b5fd;"><?php echo esc_html( $edit_plan_data['name'] ); ?></span>
+                            </h2>
+                            <a href="index.php?view=plans" style="color: var(--text-sub); text-decoration: none; font-size: 22px; font-weight: bold; padding: 4px 10px;">&times;</a>
+                        </div>
+
+                        <form action="index.php?view=plans" method="POST">
+                            <input type="hidden" name="plan_id" value="<?php echo $edit_plan_data['id']; ?>">
+
+                            <div class="form-group">
+                                <label for="edit_plan_name">Nome do Plano</label>
+                                <input type="text" name="plan_name" id="edit_plan_name" required value="<?php echo esc_html( $edit_plan_data['name'] ); ?>">
+                            </div>
+                            <div class="form-group">
+                                <label for="edit_plan_price">Preço em R$</label>
+                                <input type="number" step="0.01" name="plan_price" id="edit_plan_price" required value="<?php echo esc_html( $edit_plan_data['price'] ); ?>">
+                            </div>
+                            <div class="form-group">
+                                <label for="edit_plan_days">Validade em Dias</label>
+                                <input type="number" name="plan_days" id="edit_plan_days" required value="<?php echo esc_html( $edit_plan_data['duration_days'] ); ?>">
+                            </div>
+
+                            <div style="display: flex; gap: 12px; margin-top: 28px;">
+                                <a href="index.php?view=plans" class="btn btn-secondary" style="flex: 1; text-align: center; justify-content: center;">
+                                    Cancelar
+                                </a>
+                                <button type="submit" name="update_plan" class="btn btn-primary" style="flex: 1;">
+                                    <i data-lucide="save"></i>
+                                    Salvar Alterações
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            <?php endif; ?>
+
             <div class="page-title">
                 <i data-lucide="package" style="color: var(--accent);"></i>
                 Planos de Assinatura
             </div>
 
             <div style="display: grid; grid-template-columns: 360px 1fr; gap: 24px;">
-                <!-- Formulário: Criar / Editar Plano -->
+                <!-- Formulário: Criar Novo Plano -->
                 <div class="card">
                     <h2>
-                        <i data-lucide="<?php echo $edit_plan_data ? 'edit' : 'plus-circle'; ?>" style="color: var(--accent);"></i>
-                        <?php echo $edit_plan_data ? 'Editar Plano' : 'Novo Plano'; ?>
+                        <i data-lucide="plus-circle" style="color: var(--accent);"></i>
+                        Novo Plano
                     </h2>
                     <form action="index.php?view=plans" method="POST">
-                        <?php if ( $edit_plan_data ): ?>
-                            <input type="hidden" name="plan_id" value="<?php echo $edit_plan_data['id']; ?>">
-                        <?php endif; ?>
-
                         <div class="form-group">
                             <label for="plan_name">Nome do Plano</label>
-                            <input type="text" name="plan_name" id="plan_name" required value="<?php echo esc_html( $edit_plan_data['name'] ?? '' ); ?>" placeholder="Ex: Plano Mensal, Anual">
+                            <input type="text" name="plan_name" id="plan_name" required placeholder="Ex: Plano Mensal, Anual">
                         </div>
                         <div class="form-group">
                             <label for="plan_price">Preço em R$</label>
-                            <input type="number" step="0.01" name="plan_price" id="plan_price" required value="<?php echo esc_html( $edit_plan_data['price'] ?? '' ); ?>" placeholder="49.90">
+                            <input type="number" step="0.01" name="plan_price" id="plan_price" required placeholder="49.90">
                         </div>
                         <div class="form-group">
                             <label for="plan_days">Validade em Dias</label>
-                            <input type="number" name="plan_days" id="plan_days" required value="<?php echo esc_html( $edit_plan_data['duration_days'] ?? 30 ); ?>" placeholder="30">
+                            <input type="number" name="plan_days" id="plan_days" required value="30" placeholder="30">
                         </div>
-
-                        <?php if ( $edit_plan_data ): ?>
-                            <button type="submit" name="update_plan" class="btn btn-primary" style="width: 100%;">
-                                <i data-lucide="check-circle"></i>
-                                Salvar Alterações
-                            </button>
-                            <a href="index.php?view=plans" class="btn btn-secondary" style="width: 100%; margin-top: 10px; text-align: center; justify-content: center;">
-                                Cancelar Edição
-                            </a>
-                        <?php else: ?>
-                            <button type="submit" name="create_plan" class="btn btn-primary" style="width: 100%;">
-                                <i data-lucide="plus"></i>
-                                Adicionar Plano
-                            </button>
-                        <?php endif; ?>
+                        <button type="submit" name="create_plan" class="btn btn-primary" style="width: 100%;">
+                            <i data-lucide="plus"></i>
+                            Adicionar Plano
+                        </button>
                     </form>
                 </div>
 
