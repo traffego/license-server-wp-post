@@ -278,9 +278,12 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
         /* Seletor Visual de Planos (Cards Grid) */
         .plans-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 10px;
             margin-bottom: 20px;
+        }
+        @media (max-width: 500px) {
+            .plans-grid { grid-template-columns: 1fr; }
         }
         .plan-card {
             background: var(--input-bg);
