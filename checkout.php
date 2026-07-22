@@ -198,18 +198,24 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 // ── GET: Carregar Dados e Planos ──────────────────────────────────────────────
 $db = get_db_connection();
 
-// Forçar a sincronização dos 3 planos oficiais se não houver 3 planos válidos
-$count_valid_plans = (int) $db->query( "SELECT COUNT(*) FROM plans WHERE name IS NOT NULL AND name != '' AND price > 0" )->fetchColumn();
-if ( $count_valid_plans < 3 || isset( $_GET['reset_plans'] ) ) {
-    $db->exec( "TRUNCATE TABLE `plans`" );
+// Forçar limpeza e cadastro dos 3 planos oficiais se a contagem válida for menor que 3
+$valid_plans = $db->query( "SELECT * FROM plans WHERE name IS NOT NULL AND name != '' AND price > 0" )->fetchAll();
+
+if ( count( $valid_plans ) < 3 || isset( $_GET['reset_plans'] ) ) {
+    try {
+        $db->exec( "TRUNCATE TABLE `plans`" );
+    } catch ( Exception $e ) {
+        $db->exec( "DELETE FROM `plans`" );
+    }
     $db->exec( "
-        INSERT INTO plans (name, price, duration_days) VALUES 
-        ('Plano Mensal - Starter', 49.90, 30),
-        ('Plano Trimestral - Pro', 129.90, 90),
-        ('Plano Anual - Agência', 399.00, 365);
+        INSERT INTO plans (id, name, price, duration_days) VALUES 
+        (1, 'Plano Mensal - Starter', 49.90, 30),
+        (2, 'Plano Trimestral - Pro', 129.90, 90),
+        (3, 'Plano Anual - Agência', 399.00, 365);
     " );
+    $valid_plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
 }
-$plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
+$plans = $valid_plans;
 
 // Verificar se veio com chave de licença para renovação
 $param_key       = trim( $_GET['key'] ?? $_GET['license_key'] ?? '' );
