@@ -338,7 +338,12 @@ function call_gemini_imagen( string $key, string $prompt, array $opts ): array {
     ];
 
     $res = curl_post( $url, json_encode( $payload ), [ 'Content-Type: application/json' ] );
-    if ( ! $res['success'] ) return $res;
+    if ( ! $res['success'] ) {
+        if ( strpos( $res['message'], 'limit: 0' ) !== false || strpos( $res['message'], 'Quota exceeded' ) !== false ) {
+            $res['message'] = 'A API de imagem do Gemini exige faturamento (Billing) ativo no Google AI Studio (cota grátis para imagens = 0). Recomendamos usar Pollinations AI (Grátis sem chave) ou Hugging Face nas Configurações.';
+        }
+        return $res;
+    }
 
     $data  = json_decode( $res['body'], true );
     $parts = $data['candidates'][0]['content']['parts'] ?? [];
