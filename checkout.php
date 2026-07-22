@@ -196,7 +196,19 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 }
 
 // ── GET: Carregar Dados e Planos ──────────────────────────────────────────────
-$db    = get_db_connection();
+$db = get_db_connection();
+
+// Auto-popular os 3 planos caso o banco da Hostinger tenha menos de 3 registros
+$count_plans = (int) $db->query( "SELECT COUNT(*) FROM plans" )->fetchColumn();
+if ( $count_plans < 3 ) {
+    $db->exec( "DELETE FROM plans" );
+    $db->exec( "
+        INSERT INTO plans (name, price, duration_days) VALUES 
+        ('Plano Mensal - Starter', 49.90, 30),
+        ('Plano Trimestral - Pro', 129.90, 90),
+        ('Plano Anual - Agência', 399.00, 365);
+    " );
+}
 $plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
 
 // Verificar se veio com chave de licença para renovação
