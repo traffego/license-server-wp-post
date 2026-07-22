@@ -154,11 +154,14 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         $pix_res = call_asaas_api( "/v3/payments/{$payment_id}/pixQrCode" );
         if ( ! empty( $pix_res['data']['payload'] ) ) {
             $pix_data = [
-                'payload'      => $pix_res['data']['payload'],
-                'encodedImage' => $pix_res['data']['encodedImage'] ?? '',
+                'payload'        => $pix_res['data']['payload'],
+                'encodedImage'   => $pix_res['data']['encodedImage'] ?? '',
                 'expirationDate' => $pix_res['data']['expirationDate'] ?? '',
             ];
-      echo json_encode( [
+        }
+    }
+
+    echo json_encode( [
         'success'        => true,
         'license_key'    => $license_key,
         'status'         => $initial_status,
