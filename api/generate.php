@@ -26,8 +26,10 @@ $options_raw = $_POST['options'] ?? '';
 $options     = ! empty( $options_raw ) ? json_decode( $options_raw, true ) : [];
 
 // Limpar domínio
+$domain = strtolower( trim( $_POST['domain'] ?? '' ) );
 $domain = preg_replace( '/^https?:\/\//i', '', $domain );
-$domain = rtrim( $domain, '/' );
+$domain = explode( '/', $domain )[0];
+$domain = explode( ':', $domain )[0];
 
 if ( empty( $license_key ) || empty( $domain ) || empty( $provider ) ) {
     http_response_code( 400 );
@@ -38,14 +40,15 @@ if ( empty( $license_key ) || empty( $domain ) || empty( $provider ) ) {
 try {
     $db = get_db_connection();
     
-    // 1. Validar licença no banco
-    $stmt = $db->prepare( "SELECT * FROM licenses WHERE license_key = ? LIMIT 1" );
+    // 1. Validar licença no banco (busca insensível a maiúsculas/minúsculas)
+    $stmt = $db->prepare( "SELECT * FROM licenses WHERE UPPER(license_key) = UPPER(?) LIMIT 1" );
     $stmt->execute( [ $license_key ] );
     $license = $stmt->fetch();
     
     if ( ! $license ) {
         http_response_code( 404 );
-        echo json_encode( [ 'success' => false, 'message' => 'Chave de licença inválida.' ] );
+        $preview = substr( $license_key, 0, 6 ) . '…';
+        echo json_encode( [ 'success' => false, 'message' => 'Chave de licença não encontrada no banco. Recebido: ' . $preview . ' Dom: ' . $domain ] );
         exit;
     }
     
@@ -56,8 +59,8 @@ try {
         exit;
     }
     
-    // 3. Verificar domínio associado
-    $stmt = $db->prepare( "SELECT * FROM activations WHERE license_id = ? AND domain = ? LIMIT 1" );
+    // 3. Verificar domínio associado (normalizado lowercase, sem protocolo/path/porta)
+    $stmt = $db->prepare( "SELECT * FROM activations WHERE license_id = ? AND LOWER(TRIM(domain)) = LOWER(TRIM(?)) LIMIT 1" );
     $stmt->execute( [ $license['id'], $domain ] );
     $activation = $stmt->fetch();
     
