@@ -198,10 +198,10 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 // ── GET: Carregar Dados e Planos ──────────────────────────────────────────────
 $db = get_db_connection();
 
-// Auto-popular os 3 planos caso o banco da Hostinger tenha menos de 3 registros
-$count_plans = (int) $db->query( "SELECT COUNT(*) FROM plans" )->fetchColumn();
-if ( $count_plans < 3 ) {
-    $db->exec( "DELETE FROM plans" );
+// Forçar a sincronização dos 3 planos oficiais se não houver 3 planos válidos
+$count_valid_plans = (int) $db->query( "SELECT COUNT(*) FROM plans WHERE name IS NOT NULL AND name != '' AND price > 0" )->fetchColumn();
+if ( $count_valid_plans < 3 || isset( $_GET['reset_plans'] ) ) {
+    $db->exec( "TRUNCATE TABLE `plans`" );
     $db->exec( "
         INSERT INTO plans (name, price, duration_days) VALUES 
         ('Plano Mensal - Starter', 49.90, 30),
@@ -298,30 +298,35 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
             .plans-grid { grid-template-columns: 1fr; }
         }
         .plan-card {
-            background: var(--input-bg);
+            background: #191429;
             border: 2px solid var(--border-color);
             border-radius: 12px;
-            padding: 14px 10px;
+            padding: 14px 8px;
             text-align: center;
             cursor: pointer;
             transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 105px;
         }
         .plan-card:hover {
             border-color: rgba(124, 58, 237, 0.6);
             transform: translateY(-2px);
         }
         .plan-card.selected {
-            border-color: var(--accent);
-            background: rgba(124, 58, 237, 0.18);
-            box-shadow: 0 0 15px rgba(124, 58, 237, 0.3);
+            border-color: #7c3aed;
+            background: rgba(124, 58, 237, 0.25);
+            box-shadow: 0 0 15px rgba(124, 58, 237, 0.4);
         }
         .plan-badge {
-            font-size: 9px;
+            font-size: 10px;
             font-weight: 700;
             text-transform: uppercase;
             color: #c4b5fd;
-            background: rgba(124, 58, 237, 0.25);
-            padding: 2px 6px;
+            background: rgba(124, 58, 237, 0.35);
+            padding: 3px 8px;
             border-radius: 8px;
             display: inline-block;
             margin-bottom: 6px;
@@ -329,12 +334,20 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
         .plan-name {
             font-size: 12px;
             font-weight: 700;
-            color: #fff;
-            margin-bottom: 4px;
+            color: #ffffff;
+            margin-bottom: 6px;
+            line-height: 1.2;
+        }
+        .plan-price {
+            display: flex;
+            align-items: baseline;
+            gap: 2px;
+            justify-content: center;
         }
         .plan-price .currency {
             font-size: 11px;
-            color: var(--text-sub);
+            color: #a78bfa;
+            font-weight: 600;
         }
         .plan-price .amount {
             font-size: 16px;
