@@ -191,14 +191,88 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         }
     }
 
+    // Resposta: só enviar chave se pagamento já confirmado (cartão aprovado)
+    $show_key = ( $initial_status === 'ACTIVE' );
+
     echo json_encode( [
         'success'        => true,
-        'license_key'    => $final_license_key,
+        'license_key'    => $show_key ? $final_license_key : null,
         'status'         => $initial_status,
         'payment_method' => $payment_method,
+        'payment_id'     => $payment_id,
         'is_renewal'     => ! empty( $renewal_key ),
         'pix'            => $pix_data,
-        'message'        => 'Checkout processado com sucesso!',
+        'message'        => $show_key ? 'Pagamento confirmado!' : 'Aguardando confirmação do pagamento...',
+    ] );
+    exit;
+}
+
+// ── AJAX: Verificar Status do Pagamento ──────────────────────────────────────
+if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POST['action'] === 'check_payment_status' ) {
+    header( 'Content-Type: application/json; charset=utf-8' );
+
+    $payment_id_check = trim( $_POST['payment_id'] ?? '' );
+
+    if ( empty( $payment_id_check ) || empty( $api_key ) ) {
+        echo json_encode( [ 'success' => false, 'status' => 'UNKNOWN' ] );
+        exit;
+    }
+
+    // Helper cURL (redeclarar caso não exista no escopo)
+    if ( ! function_exists( 'call_asaas_api' ) ) {
+        function call_asaas_api( string $endpoint, string $method = 'GET', array $payload = [] ): array {
+            $api_key  = get_setting( 'asaas_api_key', '' );
+            $base_url = get_asaas_base_url();
+            $ch = curl_init( $base_url . $endpoint );
+            $headers = [
+                'access_token: ' . $api_key,
+                'Content-Type: application/json',
+                'User-Agent: WPAIPublisher/1.0',
+            ];
+            $opts = [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 15,
+                CURLOPT_HTTPHEADER     => $headers,
+            ];
+            if ( $method === 'POST' ) {
+                $opts[CURLOPT_POST]       = true;
+                $opts[CURLOPT_POSTFIELDS] = json_encode( $payload );
+            }
+            curl_setopt_array( $ch, $opts );
+            $res  = curl_exec( $ch );
+            $code = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+            curl_close( $ch );
+            $data = json_decode( $res, true ) ?: [];
+            return [ 'code' => $code, 'data' => $data ];
+        }
+    }
+
+    $status_res = call_asaas_api( "/v3/payments/{$payment_id_check}" );
+    $asaas_status = $status_res['data']['status'] ?? 'PENDING';
+
+    // Status confirmados do Asaas: RECEIVED, CONFIRMED, RECEIVED_IN_CASH
+    $confirmed = in_array( $asaas_status, [ 'RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH' ] );
+
+    $license_key_output = null;
+
+    if ( $confirmed ) {
+        // Ativar licença no banco
+        $db = get_db_connection();
+        $stmt = $db->prepare( "UPDATE licenses SET status = 'ACTIVE' WHERE asaas_subscription_id = ? AND status != 'ACTIVE'" );
+        $stmt->execute( [ $payment_id_check ] );
+
+        // Buscar a chave
+        $stmt2 = $db->prepare( "SELECT license_key FROM licenses WHERE asaas_subscription_id = ? LIMIT 1" );
+        $stmt2->execute( [ $payment_id_check ] );
+        $lic = $stmt2->fetch();
+        $license_key_output = $lic ? $lic['license_key'] : null;
+    }
+
+    echo json_encode( [
+        'success'     => true,
+        'confirmed'   => $confirmed,
+        'status'      => $asaas_status,
+        'license_key' => $license_key_output,
     ] );
     exit;
 }
@@ -496,35 +570,50 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
             </form>
         </div>
 
-        <!-- Sucesso / QR Code -->
+        <!-- Sucesso: Aguardando PIX -->
         <div id="result-box" class="result-box">
-            <h2 style="font-size: 22px; color: var(--success); margin-bottom: 10px;">
-                🎉 <?php echo $renewal_license ? 'Licença Renovada!' : 'Licença Gerada!'; ?>
-            </h2>
-            <p style="font-size: 13px; color: var(--text-sub);">
-                <?php echo $renewal_license ? 'Sua licença foi renovada com sucesso.' : 'Copie sua chave de licença abaixo e cole no seu plugin WordPress:'; ?>
-            </p>
 
-            <div class="key-display" id="generated-key">WPAIP-XXXX-XXXX</div>
-            <button class="btn-copy" onclick="copyKey()">📋 Copiar Chave de Licença</button>
+            <!-- Estado: PIX pendente (QR Code) -->
+            <div id="pix-pending-area" style="display:none;">
+                <h2 style="font-size: 20px; color: #a78bfa; margin-bottom: 6px;">Quase lá! Realize o pagamento PIX</h2>
+                <p style="font-size: 13px; color: var(--text-sub); margin-bottom: 16px;">Escaneie o QR Code ou copie o código. Sua chave de licença será revelada automaticamente após a confirmação.</p>
 
-            <div id="pix-area" style="margin-top: 25px; display: none;">
-                <h3 style="font-size: 15px; margin-bottom: 8px;">Pagamento PIX Pendente</h3>
-                <p style="font-size: 12px; color: var(--text-sub);">Escaneie o QR Code abaixo ou use o Copia e Cola para ativar sua licença instantaneamente:</p>
-                
                 <img id="pix-image" class="pix-qr" src="" alt="QR Code PIX">
-                
-                <div style="margin-top: 10px;">
-                    <input type="text" id="pix-payload" readonly style="font-size: 11px; text-align: center;">
-                    <button class="btn-copy" style="margin-top: 8px;" onclick="copyPixPayload()">Copiar Código PIX</button>
+
+                <div style="margin-top: 12px;">
+                    <input type="text" id="pix-payload" readonly style="font-size: 11px; text-align: center; cursor: pointer;" onclick="this.select()">
+                    <button class="btn-copy" style="margin-top: 8px; width:100%;" onclick="copyPixPayload()">Copiar Código PIX Copia e Cola</button>
+                </div>
+
+                <div id="pix-status-msg" style="margin-top: 18px; font-size: 13px; color: var(--text-sub); display:flex; align-items:center; justify-content:center; gap:8px;">
+                    <span id="pix-spinner" style="display:inline-block; width:14px; height:14px; border:2px solid #7c3aed; border-top-color:transparent; border-radius:50%; animation: spin 0.8s linear infinite;"></span>
+                    Verificando pagamento automaticamente...
                 </div>
             </div>
+
+            <!-- Estado: Pagamento Confirmado -->
+            <div id="payment-confirmed-area" style="display:none;">
+                <h2 style="font-size: 22px; color: var(--success); margin-bottom: 10px;">Pagamento Confirmado!</h2>
+                <p style="font-size: 13px; color: var(--text-sub); margin-bottom: 16px;">
+                    <?php echo $renewal_license ? 'Sua licença foi renovada com sucesso.' : 'Copie sua chave e cole no plugin WordPress:'; ?>
+                </p>
+                <div class="key-display" id="generated-key"></div>
+                <button class="btn-copy" style="width:100%; margin-top: 8px;" onclick="copyKey()">Copiar Chave de Licença</button>
+            </div>
+
         </div>
     </div>
 </div>
 
+<style>
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
 <script>
     const isRenewal = <?php echo $renewal_license ? 'true' : 'false'; ?>;
+    let pollingInterval = null;
+    let pollingAttempts  = 0;
+    const MAX_ATTEMPTS   = 72; // 72 x 5s = 6 minutos
 
     function selectPlanCard(card, planId, rawPrice) {
         document.querySelectorAll('.plan-card').forEach(c => c.classList.remove('selected'));
@@ -549,9 +638,41 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
         }
     }
 
+    function revealKey(licenseKey) {
+        if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+        document.getElementById('pix-pending-area').style.display   = 'none';
+        document.getElementById('payment-confirmed-area').style.display = 'block';
+        document.getElementById('generated-key').innerText = licenseKey;
+    }
+
+    function startPolling(paymentId) {
+        pollingInterval = setInterval(function() {
+            pollingAttempts++;
+
+            if (pollingAttempts > MAX_ATTEMPTS) {
+                clearInterval(pollingInterval);
+                document.getElementById('pix-status-msg').innerHTML = 'Tempo esgotado. Verifique seu e-mail para receber a chave após confirmação manual.';
+                return;
+            }
+
+            const fd = new FormData();
+            fd.append('action', 'check_payment_status');
+            fd.append('payment_id', paymentId);
+
+            fetch('', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.confirmed && d.license_key) {
+                        revealKey(d.license_key);
+                    }
+                })
+                .catch(() => {}); // Ignorar erros de rede e continuar tentando
+        }, 5000);
+    }
+
     document.getElementById('checkout-form').addEventListener('submit', function(e) {
         e.preventDefault();
-        const btn = document.getElementById('btn-pay');
+        const btn        = document.getElementById('btn-pay');
         const alertError = document.getElementById('alert-error');
         alertError.style.display = 'none';
         btn.disabled = true;
@@ -559,10 +680,7 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
 
         const formData = new FormData(this);
 
-        fetch('', {
-            method: 'POST',
-            body: formData
-        })
+        fetch('', { method: 'POST', body: formData })
         .then(res => res.json())
         .then(data => {
             btn.disabled = false;
@@ -576,14 +694,22 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
 
             document.getElementById('checkout-form-container').style.display = 'none';
             document.getElementById('result-box').style.display = 'block';
-            document.getElementById('generated-key').innerText = data.license_key;
 
+            // Cartão aprovado imediatamente
+            if (data.license_key) {
+                document.getElementById('payment-confirmed-area').style.display = 'block';
+                document.getElementById('generated-key').innerText = data.license_key;
+                return;
+            }
+
+            // PIX: mostrar QR Code e iniciar polling
             if (data.pix) {
-                document.getElementById('pix-area').style.display = 'block';
+                document.getElementById('pix-pending-area').style.display = 'block';
                 if (data.pix.encodedImage) {
                     document.getElementById('pix-image').src = 'data:image/png;base64,' + data.pix.encodedImage;
                 }
                 document.getElementById('pix-payload').value = data.pix.payload;
+                startPolling(data.payment_id);
             }
         })
         .catch(err => {
@@ -596,16 +722,14 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
 
     function copyKey() {
         const key = document.getElementById('generated-key').innerText;
-        navigator.clipboard.writeText(key);
-        alert('Chave de licença copiada para a área de transferência!');
+        navigator.clipboard.writeText(key).then(() => alert('Chave de licença copiada!'));
     }
 
     function copyPixPayload() {
         const payload = document.getElementById('pix-payload').value;
-        navigator.clipboard.writeText(payload);
-        alert('Código PIX Copia e Cola copiado!');
+        navigator.clipboard.writeText(payload).then(() => alert('Código PIX copiado!'));
     }
-
 </script>
 </body>
 </html>
+
