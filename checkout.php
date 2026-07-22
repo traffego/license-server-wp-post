@@ -62,6 +62,7 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         $headers = [
             'access_token: ' . $api_key,
             'Content-Type: application/json',
+            'User-Agent: WPAIPublisher/1.0',
         ];
 
         $opts = [
