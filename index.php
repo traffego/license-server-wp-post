@@ -254,6 +254,25 @@ if ( isset( $_POST['create_plan'] ) ) {
     }
 }
 
+if ( isset( $_POST['update_plan'] ) ) {
+    $plan_id    = (int) $_POST['plan_id'];
+    $plan_name  = trim( $_POST['plan_name'] ?? '' );
+    $plan_price = (float) ( $_POST['plan_price'] ?? 0 );
+    $plan_days  = (int) ( $_POST['plan_days'] ?? 30 );
+
+    if ( $plan_id <= 0 || empty( $plan_name ) || $plan_price <= 0 ) {
+        $error = 'Dados inválidos para atualizar o plano.';
+    } else {
+        try {
+            $stmt = $db->prepare( "UPDATE plans SET name = ?, price = ?, duration_days = ? WHERE id = ?" );
+            $stmt->execute( [ $plan_name, $plan_price, $plan_days, $plan_id ] );
+            $message = "Plano '{$plan_name}' atualizado com sucesso!";
+        } catch ( PDOException $e ) {
+            $error = 'Erro ao atualizar plano: ' . $e->getMessage();
+        }
+    }
+}
+
 if ( isset( $_GET['delete_plan'] ) ) {
     $plan_id = (int) $_GET['delete_plan'];
     try {
@@ -263,6 +282,14 @@ if ( isset( $_GET['delete_plan'] ) ) {
     } catch ( PDOException $e ) {
         $error = 'Erro ao excluir plano: ' . $e->getMessage();
     }
+}
+
+$edit_plan_data = null;
+if ( isset( $_GET['edit_plan'] ) ) {
+    $edit_id = (int) $_GET['edit_plan'];
+    $stmt = $db->prepare( "SELECT * FROM plans WHERE id = ? LIMIT 1" );
+    $stmt->execute( [ $edit_id ] );
+    $edit_plan_data = $stmt->fetch();
 }
 
 // ── Handlers de Configurações ─────────────────────────────────────────────────
@@ -476,29 +503,44 @@ function esc_html( $str ) {
             </div>
 
             <div style="display: grid; grid-template-columns: 360px 1fr; gap: 24px;">
-                <!-- Formulário: Criar Plano -->
+                <!-- Formulário: Criar / Editar Plano -->
                 <div class="card">
                     <h2>
-                        <i data-lucide="plus-circle" style="color: var(--accent);"></i>
-                        Novo Plano
+                        <i data-lucide="<?php echo $edit_plan_data ? 'edit' : 'plus-circle'; ?>" style="color: var(--accent);"></i>
+                        <?php echo $edit_plan_data ? 'Editar Plano' : 'Novo Plano'; ?>
                     </h2>
                     <form action="index.php?view=plans" method="POST">
+                        <?php if ( $edit_plan_data ): ?>
+                            <input type="hidden" name="plan_id" value="<?php echo $edit_plan_data['id']; ?>">
+                        <?php endif; ?>
+
                         <div class="form-group">
                             <label for="plan_name">Nome do Plano</label>
-                            <input type="text" name="plan_name" id="plan_name" required placeholder="Ex: Plano Mensal, Anual">
+                            <input type="text" name="plan_name" id="plan_name" required value="<?php echo esc_html( $edit_plan_data['name'] ?? '' ); ?>" placeholder="Ex: Plano Mensal, Anual">
                         </div>
                         <div class="form-group">
                             <label for="plan_price">Preço em R$</label>
-                            <input type="number" step="0.01" name="plan_price" id="plan_price" required placeholder="49.90">
+                            <input type="number" step="0.01" name="plan_price" id="plan_price" required value="<?php echo esc_html( $edit_plan_data['price'] ?? '' ); ?>" placeholder="49.90">
                         </div>
                         <div class="form-group">
                             <label for="plan_days">Validade em Dias</label>
-                            <input type="number" name="plan_days" id="plan_days" required value="30" placeholder="30">
+                            <input type="number" name="plan_days" id="plan_days" required value="<?php echo esc_html( $edit_plan_data['duration_days'] ?? 30 ); ?>" placeholder="30">
                         </div>
-                        <button type="submit" name="create_plan" class="btn btn-primary" style="width: 100%;">
-                            <i data-lucide="plus"></i>
-                            Adicionar Plano
-                        </button>
+
+                        <?php if ( $edit_plan_data ): ?>
+                            <button type="submit" name="update_plan" class="btn btn-primary" style="width: 100%;">
+                                <i data-lucide="check-circle"></i>
+                                Salvar Alterações
+                            </button>
+                            <a href="index.php?view=plans" class="btn btn-secondary" style="width: 100%; margin-top: 10px; text-align: center; justify-content: center;">
+                                Cancelar Edição
+                            </a>
+                        <?php else: ?>
+                            <button type="submit" name="create_plan" class="btn btn-primary" style="width: 100%;">
+                                <i data-lucide="plus"></i>
+                                Adicionar Plano
+                            </button>
+                        <?php endif; ?>
                     </form>
                 </div>
 
@@ -528,10 +570,16 @@ function esc_html( $str ) {
                                             <td style="color: #34d399; font-weight: 800; font-size: 16px;">R$ <?php echo number_format( $p['price'], 2, ',', '.' ); ?></td>
                                             <td><span class="badge badge-active"><?php echo $p['duration_days']; ?> dias</span></td>
                                             <td>
-                                                <a href="index.php?view=plans&delete_plan=<?php echo $p['id']; ?>" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('Excluir este plano?')">
-                                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
-                                                    Excluir
-                                                </a>
+                                                <div style="display: flex; gap: 6px;">
+                                                    <a href="index.php?view=plans&edit_plan=<?php echo $p['id']; ?>" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">
+                                                        <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
+                                                        Editar
+                                                    </a>
+                                                    <a href="index.php?view=plans&delete_plan=<?php echo $p['id']; ?>" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('Excluir este plano?')">
+                                                        <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                                                        Excluir
+                                                    </a>
+                                                </div>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
