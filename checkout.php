@@ -4,12 +4,15 @@
  * Permite compra de nova licença ou renovação de licença existente via PIX ou Cartão.
  */
 
-if ( function_exists( 'opcache_reset' ) ) {
-    @opcache_reset();
-}
-
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
+
+// Definir esc_html caso não exista (função do WordPress não disponível em contexto standalone)
+if ( ! function_exists( 'esc_html' ) ) {
+    function esc_html( $str ) {
+        return htmlspecialchars( (string) $str, ENT_QUOTES, 'UTF-8' );
+    }
+}
 
 $api_key = get_setting( 'asaas_api_key', '' );
 $env     = get_setting( 'asaas_environment', 'sandbox' );
@@ -200,39 +203,8 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 }
 
 // ── GET: Carregar Dados e Planos ──────────────────────────────────────────────
-$db       = get_db_connection();
-$db_plans = [];
-
-try {
-    $db_plans = $db->query( "SELECT * FROM plans WHERE name IS NOT NULL AND name != '' ORDER BY price ASC" )->fetchAll();
-} catch ( Exception $e ) {
-    $db_plans = [];
-}
-
-if ( count( $db_plans ) < 3 ) {
-    try {
-        $db->exec( "TRUNCATE TABLE `plans`" );
-        $db->exec( "
-            INSERT INTO plans (id, name, price, duration_days) VALUES 
-            (1, 'Plano Mensal - Starter', 49.90, 30),
-            (2, 'Plano Trimestral - Pro', 129.90, 90),
-            (3, 'Plano Anual - Agência', 399.00, 365);
-        " );
-        $db_plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
-    } catch ( Exception $e ) {
-        // Ignore
-    }
-}
-
-if ( count( $db_plans ) >= 3 ) {
-    $plans = $db_plans;
-} else {
-    $plans = [
-        [ 'id' => 1, 'name' => 'Plano Mensal - Starter', 'price' => 49.90, 'duration_days' => 30 ],
-        [ 'id' => 2, 'name' => 'Plano Trimestral - Pro', 'price' => 129.90, 'duration_days' => 90 ],
-        [ 'id' => 3, 'name' => 'Plano Anual - Agência', 'price' => 399.00, 'duration_days' => 365 ],
-    ];
-}
+$db    = get_db_connection();
+$plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
 
 // Verificar se veio com chave de licença para renovação
 $param_key       = trim( $_GET['key'] ?? $_GET['license_key'] ?? '' );
@@ -452,12 +424,12 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
                     <div class="plans-grid">
                         <?php foreach ( $plans as $index => $p ): ?>
                             <div class="plan-card <?php echo $index === 0 ? 'selected' : ''; ?>" 
-                                 onclick="selectPlanCard(this, <?php echo $p['id']; ?>, '<?php echo number_format( $p['price'], 2, '.', '' ); ?>')">
-                                <div class="plan-badge"><?php echo $p['duration_days']; ?> dias</div>
+                                 onclick="selectPlanCard(this, <?php echo (int) $p['id']; ?>, '<?php echo number_format( (float) $p['price'], 2, '.', '' ); ?>')">
+                                <div class="plan-badge"><?php echo (int) $p['duration_days']; ?> dias</div>
                                 <div class="plan-name"><?php echo esc_html( $p['name'] ); ?></div>
                                 <div class="plan-price">
                                     <span class="currency">R$</span>
-                                    <span class="amount"><?php echo number_format( $p['price'], 2, ',', '.' ); ?></span>
+                                    <span class="amount"><?php echo number_format( (float) $p['price'], 2, ',', '.' ); ?></span>
                                 </div>
                             </div>
                         <?php endforeach; ?>
@@ -632,6 +604,7 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
         navigator.clipboard.writeText(payload);
         alert('Código PIX Copia e Cola copiado!');
     }
+
 </script>
 </body>
 </html>
