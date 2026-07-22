@@ -18,9 +18,11 @@ if ( $_SERVER['REQUEST_METHOD'] !== 'POST' ) {
 $license_key = trim( $_POST['license_key'] ?? '' );
 $domain      = trim( $_POST['domain'] ?? '' );
 
-// Limpar domínio (remover http://, https:// e barras finais)
+// Limpar domínio (remover http://, https://, portas e subpastas)
+$domain = strtolower( trim( $_POST['domain'] ?? '' ) );
 $domain = preg_replace( '/^https?:\/\//i', '', $domain );
-$domain = rtrim( $domain, '/' );
+$domain = explode( '/', $domain )[0];
+$domain = explode( ':', $domain )[0];
 
 if ( empty( $license_key ) || empty( $domain ) ) {
     http_response_code( 400 );
