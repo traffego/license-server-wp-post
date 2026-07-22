@@ -76,10 +76,15 @@ try {
         ) ENGINE=InnoDB;
     " );
 
-    // Inicializar plano padrão se tabela vazia
+    // Inicializar os 3 planos oficiais se tabela vazia
     $check_plans = $pdo->query( "SELECT COUNT(*) FROM plans" )->fetchColumn();
     if ( (int) $check_plans === 0 ) {
-        $pdo->exec( "INSERT INTO plans (name, price, duration_days) VALUES ('Plano Mensal', 49.90, 30)" );
+        $pdo->exec( "
+            INSERT INTO plans (name, price, duration_days) VALUES 
+            ('Plano Mensal - Starter', 49.90, 30),
+            ('Plano Trimestral - Pro', 129.90, 90),
+            ('Plano Anual - Agência', 399.00, 365);
+        " );
     }
 
     // Inicializar configurações padrões se vazias
