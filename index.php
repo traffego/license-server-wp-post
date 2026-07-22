@@ -1,7 +1,7 @@
 <?php
 /**
  * Painel Administrativo de Licenças.
- * Design premium e moderno (Dark Mode, layout fluído e responsivo).
+ * Design premium e moderno (Dark Mode, navegação por abas/páginas e ícones vetoriais).
  */
 
 session_start();
@@ -40,6 +40,7 @@ if ( ! $authenticated ) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Login — License Server</title>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+        <script src="https://unpkg.com/lucide@latest"></script>
         <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body {
@@ -98,56 +99,56 @@ if ( ! $authenticated ) {
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }
-            input {
+            input[type="text"], input[type="password"] {
                 width: 100%;
-                padding: 14px 16px;
-                background: rgba(255, 255, 255, 0.05);
+                padding: 14px 18px;
+                background: rgba(0, 0, 0, 0.3);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 12px;
                 color: #fff;
-                font-family: inherit;
                 font-size: 15px;
-                transition: border-color 0.2s, background-color 0.2s;
-            }
-            input:focus {
                 outline: none;
+                transition: all 0.2s;
+            }
+            input[type="text"]:focus, input[type="password"]:focus {
                 border-color: #7c3aed;
-                background: rgba(255, 255, 255, 0.08);
+                box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.15);
             }
             button {
                 width: 100%;
                 padding: 14px;
-                background: linear-gradient(135deg, #7c3aed, #ec4899);
+                background: linear-gradient(135deg, #7c3aed, #6366f1);
                 border: none;
                 border-radius: 12px;
                 color: #fff;
-                font-weight: 600;
                 font-size: 16px;
+                font-weight: 600;
                 cursor: pointer;
                 transition: transform 0.2s, box-shadow 0.2s;
-                margin-top: 10px;
-                box-shadow: 0 10px 25px rgba(124, 58, 237, 0.3);
+                margin-top: 12px;
             }
             button:hover {
                 transform: translateY(-2px);
-                box-shadow: 0 15px 30px rgba(124, 58, 237, 0.45);
+                box-shadow: 0 10px 25px rgba(124, 58, 237, 0.4);
             }
             .error-message {
                 background: rgba(239, 68, 68, 0.15);
                 border: 1px solid rgba(239, 68, 68, 0.3);
-                color: #f87171;
-                font-size: 13px;
+                color: #fca5a5;
                 padding: 12px;
-                border-radius: 8px;
+                border-radius: 10px;
+                font-size: 13px;
                 margin-bottom: 20px;
-                text-align: left;
             }
         </style>
     </head>
     <body>
         <div class="login-container">
-            <h1>License Server</h1>
-            <p class="subtitle">Faça login para gerenciar as licenças de uso</p>
+            <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+                <i data-lucide="shield-check" style="width: 48px; height: 48px; color: #a78bfa;"></i>
+            </div>
+            <h1>Painel de Licenças</h1>
+            <p class="subtitle">Faça login para acessar o gerenciamento</p>
             <?php if ( isset( $login_error ) ): ?>
                 <div class="error-message"><?php echo $login_error; ?></div>
             <?php endif; ?>
@@ -160,38 +161,81 @@ if ( ! $authenticated ) {
                     <label for="password">Senha</label>
                     <input type="password" name="password" id="password" required>
                 </div>
-                <button type="submit" name="login">Entrar no Painel</button>
+                <button type="submit" name="login">Entrar</button>
             </form>
         </div>
+        <script>lucide.createIcons();</script>
     </body>
     </html>
     <?php
     exit;
 }
 
-// ── Se logado, processar ações do Painel ────────────────────────────────────────
-$db = get_db_connection();
+// ── Se logado, processar requisições e roteamento ─────────────────────────────
+$db   = get_db_connection();
+$page = $_GET['page'] ?? 'licenses';
 
 $message = '';
-$error = '';
+$error   = '';
 
-// Salvar configurações do Asaas
-if ( isset( $_POST['save_asaas_settings'] ) ) {
-    $api_key  = trim( $_POST['asaas_api_key'] ?? '' );
-    $env      = trim( $_POST['asaas_environment'] ?? 'sandbox' );
-    $pay_link = trim( $_POST['asaas_payment_link'] ?? '' );
+// ── Handlers de Licença ───────────────────────────────────────────────────────
+if ( isset( $_POST['create_license'] ) ) {
+    $email      = filter_var( $_POST['email'] ?? '', FILTER_VALIDATE_EMAIL );
+    $custom_key = trim( $_POST['custom_key'] ?? '' );
+    $status     = $_POST['status'] ?? 'ACTIVE';
+    $asaas_sub  = trim( $_POST['asaas_subscription_id'] ?? '' );
     
-    try {
-        set_setting( 'asaas_api_key', $api_key );
-        set_setting( 'asaas_environment', $env );
-        set_setting( 'asaas_payment_link', $pay_link );
-        $message = "Configurações do Asaas salvas com sucesso.";
-    } catch ( Exception $e ) {
-        $error = "Erro ao salvar configurações: " . $e->getMessage();
+    if ( ! $email ) {
+        $error = 'E-mail do cliente inválido.';
+    } else {
+        if ( empty( $custom_key ) ) {
+            $custom_key = 'WPAIP-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) );
+        }
+        try {
+            $stmt = $db->prepare( "INSERT INTO licenses (license_key, client_email, status, asaas_subscription_id) VALUES (?, ?, ?, ?)" );
+            $stmt->execute( [ $custom_key, $email, $status, empty($asaas_sub) ? null : $asaas_sub ] );
+            $message = "Licença gerada com sucesso: <strong>{$custom_key}</strong>";
+        } catch ( PDOException $e ) {
+            $error = 'Erro ao criar licença: ' . $e->getMessage();
+        }
     }
 }
 
-// Criar novo plano
+if ( isset( $_GET['delete_license'] ) ) {
+    $id = (int) $_GET['delete_license'];
+    try {
+        $stmt = $db->prepare( "DELETE FROM licenses WHERE id = ?" );
+        $stmt->execute( [ $id ] );
+        $message = "Licença removida com sucesso.";
+    } catch ( PDOException $e ) {
+        $error = 'Erro ao remover licença: ' . $e->getMessage();
+    }
+}
+
+if ( isset( $_POST['update_status'] ) ) {
+    $id         = (int) $_POST['license_id'];
+    $new_status = $_POST['status'] ?? 'ACTIVE';
+    try {
+        $stmt = $db->prepare( "UPDATE licenses SET status = ? WHERE id = ?" );
+        $stmt->execute( [ $new_status, $id ] );
+        $message = "Status da licença atualizado.";
+    } catch ( PDOException $e ) {
+        $error = 'Erro ao atualizar status: ' . $e->getMessage();
+    }
+}
+
+if ( isset( $_GET['clear_domains'] ) ) {
+    $id = (int) $_GET['clear_domains'];
+    try {
+        $stmt = $db->prepare( "DELETE FROM activations WHERE license_id = ?" );
+        $stmt->execute( [ $id ] );
+        $message = "Domínios liberados com sucesso.";
+    } catch ( PDOException $e ) {
+        $error = 'Erro ao liberar domínios: ' . $e->getMessage();
+    }
+}
+
+// ── Handlers de Planos ────────────────────────────────────────────────────────
 if ( isset( $_POST['create_plan'] ) ) {
     $plan_name  = trim( $_POST['plan_name'] ?? '' );
     $plan_price = (float) ( $_POST['plan_price'] ?? 0 );
@@ -210,7 +254,6 @@ if ( isset( $_POST['create_plan'] ) ) {
     }
 }
 
-// Excluir plano
 if ( isset( $_GET['delete_plan'] ) ) {
     $plan_id = (int) $_GET['delete_plan'];
     try {
@@ -222,70 +265,23 @@ if ( isset( $_GET['delete_plan'] ) ) {
     }
 }
 
-// Criar nova licença
-if ( isset( $_POST['create_license'] ) ) {
-    $email = filter_var( $_POST['email'] ?? '', FILTER_VALIDATE_EMAIL );
-    $custom_key = trim( $_POST['custom_key'] ?? '' );
-    $status = $_POST['status'] ?? 'ACTIVE';
-    $asaas_sub = trim( $_POST['asaas_subscription_id'] ?? '' );
-    
-    if ( ! $email ) {
-        $error = 'E-mail do cliente inválido.';
-    } else {
-        // Gerar chave aleatória se não for customizada
-        if ( empty( $custom_key ) ) {
-            $custom_key = 'WPAIP-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) );
-        }
-        
-        try {
-            $stmt = $db->prepare( "INSERT INTO licenses (license_key, client_email, status, asaas_subscription_id) VALUES (?, ?, ?, ?)" );
-            $stmt->execute( [ $custom_key, $email, $status, empty($asaas_sub) ? null : $asaas_sub ] );
-            $message = "Licença gerada com sucesso: <strong>{$custom_key}</strong>";
-        } catch ( PDOException $e ) {
-            $error = 'Erro ao criar licença: ' . $e->getMessage();
-        }
-    }
-}
-
-// Excluir licença
-if ( isset( $_GET['delete_license'] ) ) {
-    $id = (int) $_GET['delete_license'];
-    try {
-        $stmt = $db->prepare( "DELETE FROM licenses WHERE id = ?" );
-        $stmt->execute( [ $id ] );
-        $message = "Licença removida com sucesso.";
-    } catch ( PDOException $e ) {
-        $error = 'Erro ao remover licença: ' . $e->getMessage();
-    }
-}
-
-// Alterar Status
-if ( isset( $_POST['update_status'] ) ) {
-    $id = (int) $_POST['license_id'];
-    $new_status = $_POST['status'] ?? 'ACTIVE';
+// ── Handlers de Configurações ─────────────────────────────────────────────────
+if ( isset( $_POST['save_asaas_settings'] ) ) {
+    $api_key  = trim( $_POST['asaas_api_key'] ?? '' );
+    $env      = trim( $_POST['asaas_environment'] ?? 'sandbox' );
+    $pay_link = trim( $_POST['asaas_payment_link'] ?? '' );
     
     try {
-        $stmt = $db->prepare( "UPDATE licenses SET status = ? WHERE id = ?" );
-        $stmt->execute( [ $new_status, $id ] );
-        $message = "Status da licença atualizado.";
-    } catch ( PDOException $e ) {
-        $error = 'Erro ao atualizar status: ' . $e->getMessage();
+        set_setting( 'asaas_api_key', $api_key );
+        set_setting( 'asaas_environment', $env );
+        set_setting( 'asaas_payment_link', $pay_link );
+        $message = "Configurações do Asaas salvas com sucesso.";
+    } catch ( Exception $e ) {
+        $error = "Erro ao salvar configurações: " . $e->getMessage();
     }
 }
 
-// Limpar domínios associados
-if ( isset( $_GET['clear_domains'] ) ) {
-    $id = (int) $_GET['clear_domains'];
-    try {
-        $stmt = $db->prepare( "DELETE FROM activations WHERE license_id = ?" );
-        $stmt->execute( [ $id ] );
-        $message = "Domínios liberados com sucesso.";
-    } catch ( PDOException $e ) {
-        $error = 'Erro ao liberar domínios: ' . $e->getMessage();
-    }
-}
-
-// Buscar licenças
+// ── Dados para Renderização das Telas ─────────────────────────────────────────
 $search = $_GET['search'] ?? '';
 if ( ! empty( $search ) ) {
     $stmt = $db->prepare( "SELECT l.*, GROUP_CONCAT(a.domain SEPARATOR ', ') as domains 
@@ -303,11 +299,9 @@ if ( ! empty( $search ) ) {
                          ORDER BY l.id DESC" );
 }
 $licenses = $stmt->fetchAll();
+$plans    = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
 
-// Buscar planos cadastrados
-$plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
-
-// Testar Asaas API
+// Testar Conexão Asaas
 $asaas_status = 'Não configurado';
 $asaas_class = 'status-inactive';
 $db_api_key  = get_setting( 'asaas_api_key', '' );
@@ -332,336 +326,212 @@ if ( ! empty( $db_api_key ) ) {
         $asaas_class = 'status-error';
     }
 }
+
+function selected( $val1, $val2, $echo = true ) {
+    $result = $val1 === $val2 ? 'selected="selected"' : '';
+    if ( $echo ) echo $result;
+    return $result;
+}
+function esc_html( $str ) {
+    return htmlspecialchars( (string) $str, ENT_QUOTES, 'UTF-8' );
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard — License Server</title>
+    <title>Painel Admin — License Server</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            background: #08060f;
-            font-family: 'Outfit', sans-serif;
-            color: #f8fafc;
-            min-height: 100vh;
-            padding: 40px 20px;
+        :root {
+            --bg-color: #0b0813;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --accent: #7c3aed;
+            --accent-hover: #6d28d9;
+            --text-main: #f8fafc;
+            --text-sub: rgba(248, 250, 252, 0.6);
+            --border-input: rgba(255, 255, 255, 0.12);
         }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 40px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        h1 {
-            font-size: 32px;
-            font-weight: 800;
-            background: linear-gradient(135deg, #fff 0%, #c4b5fd 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .header-actions {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-        .status-badge {
-            font-size: 13px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .status-active { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
-        .status-inactive { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
-        .status-error { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-        
-        .btn {
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-weight: 600;
-            text-decoration: none;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            border: none;
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, #7c3aed, #ec4899);
-            color: #fff;
-        }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(124, 58, 237, 0.3);
-        }
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #f8fafc;
-        }
-        .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-        .btn-danger {
-            background: rgba(239, 68, 68, 0.15);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #f87171;
-        }
-        .btn-danger:hover {
-            background: rgba(239, 68, 68, 0.25);
-        }
-        
-        /* Grid Layout */
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 2fr;
-            gap: 40px;
-            margin-bottom: 40px;
-        }
-        @media (max-width: 900px) {
-            .grid { grid-template-columns: 1fr; }
-        }
-        
-        .card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 16px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-        .card h2 {
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            color: #fff;
-        }
-        
-        /* Form Styles */
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: rgba(248, 250, 252, 0.6);
-            margin-bottom: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        input, select {
-            width: 100%;
-            padding: 12px;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 8px;
-            color: #fff;
-            font-family: inherit;
-            font-size: 14px;
-        }
-        input:focus, select:focus {
-            outline: none;
-            border-color: #7c3aed;
-        }
-        
-        /* Notifications */
-        .alert {
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-            font-size: 14px;
-        }
-        .alert-success { background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); color: #86efac; }
-        .alert-danger { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; }
-        
-        /* Table Styles */
-        .table-responsive {
-            overflow-x: auto;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            text-align: left;
-            font-size: 14px;
-        }
-        th, td {
-            padding: 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        th {
-            font-weight: 600;
-            color: rgba(248, 250, 252, 0.5);
-            text-transform: uppercase;
-            font-size: 11px;
-            letter-spacing: 0.08em;
-        }
-        tr:hover td {
-            background: rgba(255, 255, 255, 0.01);
-        }
-        
-        .license-key-col {
-            font-family: monospace;
-            font-size: 14px;
-            font-weight: bold;
-            color: #c4b5fd;
-            background: rgba(124, 58, 237, 0.08);
-            padding: 4px 8px;
-            border-radius: 6px;
-            border: 1px solid rgba(124, 58, 237, 0.15);
-        }
-        .domain-tag {
-            background: rgba(255,255,255,0.05);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 12px;
-            color: #94a3b8;
-            font-family: monospace;
-        }
-        
-        .search-bar {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        .search-bar input {
-            max-width: 300px;
-        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
+        body { background: var(--bg-color); color: var(--text-main); min-height: 100vh; display: flex; flex-direction: column; }
+
+        /* Navigation Header */
+        .navbar { background: rgba(11, 8, 19, 0.8); border-bottom: 1px solid var(--card-border); backdrop-filter: blur(15px); padding: 0 40px; display: flex; justify-content: space-between; align-items: center; height: 70px; sticky: top; top: 0; z-index: 100; }
+        .nav-brand { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 20px; color: #fff; text-decoration: none; }
+        .nav-brand i { color: var(--accent); }
+
+        .nav-links { display: flex; gap: 8px; list-style: none; height: 100%; align-items: center; }
+        .nav-item a { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; color: var(--text-sub); text-decoration: none; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+        .nav-item a:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+        .nav-item.active a { color: #fff; background: rgba(124, 58, 237, 0.2); border: 1px solid rgba(124, 58, 237, 0.3); }
+
+        .nav-logout { display: flex; align-items: center; gap: 8px; color: #f87171; text-decoration: none; font-size: 14px; font-weight: 600; padding: 8px 14px; border-radius: 8px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); transition: 0.2s; }
+        .nav-logout:hover { background: rgba(239, 68, 68, 0.25); color: #fff; }
+
+        /* Container Layout */
+        .main-content { max-width: 1200px; width: 100%; margin: 40px auto; padding: 0 20px; flex: 1; }
+        .page-title { font-size: 26px; font-weight: 800; margin-bottom: 24px; display: flex; align-items: center; gap: 12px; }
+
+        /* Card System */
+        .card { background: var(--card-bg); border: 1px solid var(--card-border); backdrop-filter: blur(20px); border-radius: 20px; padding: 28px; box-shadow: 0 15px 35px rgba(0,0,0,0.3); margin-bottom: 24px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .card h2 { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+
+        /* Forms */
+        .form-group { margin-bottom: 18px; }
+        label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-sub); margin-bottom: 8px; }
+        input, select { width: 100%; padding: 12px 16px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-input); border-radius: 10px; color: #fff; font-size: 14px; outline: none; transition: 0.2s; }
+        input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15); }
+
+        /* Buttons */
+        .btn { display: inline-flex; align-items: center; gap: 8px; justify-content: center; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; text-decoration: none; transition: 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, var(--accent), #6366f1); color: #fff; }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-secondary { background: rgba(255, 255, 255, 0.06); color: #fff; border: 1px solid var(--card-border); }
+        .btn-secondary:hover { background: rgba(255, 255, 255, 0.12); }
+        .btn-danger { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.3); color: #fff; }
+
+        /* Table */
+        .table-responsive { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { padding: 14px 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-sub); border-bottom: 1px solid var(--card-border); }
+        td { padding: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); font-size: 14px; vertical-align: middle; }
+        tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+        /* Badges */
+        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+        .badge-active { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge-inactive { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge-error { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+        .domain-tag { display: inline-block; background: rgba(124, 58, 237, 0.15); color: #c4b5fd; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-family: monospace; margin: 2px; }
+        .alert { padding: 14px 18px; border-radius: 12px; font-size: 14px; margin-bottom: 24px; display: flex; align-items: center; gap: 10px; }
+        .alert-success { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; }
+        .alert-danger { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div>
-                <h1>Painel de Licenças</h1>
-                <p style="color: rgba(248, 250, 252, 0.4); font-size: 14px; margin-top: 4px;">WP AI Publisher Central License Manager</p>
-            </div>
-            <div class="header-actions">
-                <span class="status-badge <?php echo $asaas_class; ?>">
-                    Asaas: <?php echo $asaas_status; ?>
-                </span>
-                <a href="?logout=1" class="btn btn-secondary">Sair do Painel</a>
-            </div>
-        </header>
 
-        <?php if ( ! empty( $message ) ): ?>
-            <div class="alert alert-success"><?php echo $message; ?></div>
-        <?php endif; ?>
-        <?php if ( ! empty( $error ) ): ?>
-            <div class="alert alert-danger"><?php echo $error; ?></div>
+    <!-- Header Navigation -->
+    <nav class="navbar">
+        <a href="index.php" class="nav-brand">
+            <i data-lucide="shield-check"></i>
+            WP AI Publisher
+        </a>
+
+        <ul class="nav-links">
+            <li class="nav-item <?php echo $page === 'licenses' ? 'active' : ''; ?>">
+                <a href="index.php?page=licenses">
+                    <i data-lucide="key"></i>
+                    Licenças
+                </a>
+            </li>
+            <li class="nav-item <?php echo $page === 'plans' ? 'active' : ''; ?>">
+                <a href="index.php?page=plans">
+                    <i data-lucide="package"></i>
+                    Planos de Assinatura
+                </a>
+            </li>
+            <li class="nav-item <?php echo $page === 'settings' ? 'active' : ''; ?>">
+                <a href="index.php?page=settings">
+                    <i data-lucide="sliders"></i>
+                    Configurações Asaas
+                </a>
+            </li>
+        </ul>
+
+        <a href="?logout=1" class="nav-logout">
+            <i data-lucide="log-out"></i>
+            Sair
+        </a>
+    </nav>
+
+    <!-- Main Content Body -->
+    <div class="main-content">
+
+        <?php if ( $message ): ?>
+            <div class="alert alert-success">
+                <i data-lucide="check-circle-2"></i>
+                <div><?php echo $message; ?></div>
+            </div>
         <?php endif; ?>
 
-        <div class="grid">
-            <!-- Sidebar: Criar Licença -->
-            <div>
+        <?php if ( $error ): ?>
+            <div class="alert alert-danger">
+                <i data-lucide="alert-circle"></i>
+                <div><?php echo $error; ?></div>
+            </div>
+        <?php endif; ?>
+
+        <?php if ( $page === 'plans' ): ?>
+            <!-- ── PÁGINA 2: PLANOS DE ASSINATURA ────────────────────────────── -->
+            <div class="page-title">
+                <i data-lucide="package" style="color: var(--accent);"></i>
+                Planos de Assinatura
+            </div>
+
+            <div style="display: grid; grid-template-columns: 360px 1fr; gap: 24px;">
+                <!-- Formulário: Criar Plano -->
                 <div class="card">
-                    <h2>Nova Licença</h2>
-                    <form action="" method="POST">
-                        <div class="form-group">
-                            <label for="email">E-mail do Cliente</label>
-                            <input type="email" name="email" id="email" required placeholder="cliente@email.com">
-                        </div>
-                        <div class="form-group">
-                            <label for="custom_key">Chave de Licença (Opcional)</label>
-                            <input type="text" name="custom_key" id="custom_key" placeholder="Deixe em branco para auto-gerar">
-                        </div>
-                        <div class="form-group">
-                            <label for="asaas_subscription_id">ID Assinatura Asaas (Opcional)</label>
-                            <input type="text" name="asaas_subscription_id" id="asaas_subscription_id" placeholder="sub_xxxxxxxxxxxx">
-                        </div>
-                        <div class="form-group">
-                            <label for="status">Status Inicial</label>
-                            <select name="status" id="status">
-                                <option value="ACTIVE">Ativo (ACTIVE)</option>
-                                <option value="SUSPENDED">Suspenso (SUSPENDED)</option>
-                                <option value="EXPIRED">Expirado (EXPIRED)</option>
-                            </select>
-                        </div>
-                        <button type="submit" name="create_license" class="btn btn-primary" style="width:100%;">Gerar Licença</button>
-                    </form>
-                </div>
-
-                <div class="card" style="margin-top: 30px;">
-                    <h2>Configurações do Asaas</h2>
-                    <form action="" method="POST">
-                        <div class="form-group">
-                            <label for="asaas_api_key">Chave de API Asaas</label>
-                            <input type="password" name="asaas_api_key" id="asaas_api_key" value="<?php echo esc_html( get_setting( 'asaas_api_key' ) ); ?>" placeholder="$aact_...">
-                        </div>
-                        <div class="form-group">
-                            <label for="asaas_environment">Ambiente</label>
-                            <select name="asaas_environment" id="asaas_environment">
-                                <option value="sandbox" <?php selected( get_setting( 'asaas_environment', 'sandbox' ), 'sandbox' ); ?>>Sandbox (Testes)</option>
-                                <option value="production" <?php selected( get_setting( 'asaas_environment', 'sandbox' ), 'production' ); ?>>Produção</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="asaas_payment_link">Link de Pagamento Padrão (Se em branco, usará o Checkout abaixo)</label>
-                            <input type="url" name="asaas_payment_link" id="asaas_payment_link" value="<?php echo esc_html( get_setting( 'asaas_payment_link' ) ); ?>" placeholder="https://.../checkout.php">
-                        </div>
-                        <div class="form-group" style="margin-top: 15px; background: rgba(124,58,237,0.1); padding: 12px; border-radius: 8px; border: 1px solid rgba(124,58,237,0.2);">
-                            <label style="color:#a78bfa;">Link do Checkout Público Integrado</label>
-                            <?php $checkout_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['REQUEST_URI'] ?? ''), '/\\') . "/checkout.php"; ?>
-                            <input type="text" readonly value="<?php echo esc_html($checkout_url); ?>" onclick="this.select()" style="font-size:12px; font-family:monospace; cursor:pointer;">
-                        </div>
-                        <button type="submit" name="save_asaas_settings" class="btn btn-primary" style="width:100%;">Salvar Configurações</button>
-                    </form>
-                </div>
-
-                <div class="card" style="margin-top: 30px;">
-                    <h2>Planos de Assinatura</h2>
-                    <form action="" method="POST" style="margin-bottom: 20px;">
+                    <h2>
+                        <i data-lucide="plus-circle" style="color: var(--accent);"></i>
+                        Novo Plano
+                    </h2>
+                    <form action="index.php?page=plans" method="POST">
                         <div class="form-group">
                             <label for="plan_name">Nome do Plano</label>
                             <input type="text" name="plan_name" id="plan_name" required placeholder="Ex: Plano Mensal, Anual">
                         </div>
-                        <div style="display:flex; gap:10px;">
-                            <div class="form-group" style="flex:1;">
-                                <label for="plan_price">Preço (R$)</label>
-                                <input type="number" step="0.01" name="plan_price" id="plan_price" required placeholder="49.90">
-                            </div>
-                            <div class="form-group" style="flex:1;">
-                                <label for="plan_days">Validade (Dias)</label>
-                                <input type="number" name="plan_days" id="plan_days" required value="30" placeholder="30">
-                            </div>
+                        <div class="form-group">
+                            <label for="plan_price">Preço em R$</label>
+                            <input type="number" step="0.01" name="plan_price" id="plan_price" required placeholder="49.90">
                         </div>
-                        <button type="submit" name="create_plan" class="btn btn-primary" style="width:100%;">Adicionar Plano</button>
+                        <div class="form-group">
+                            <label for="plan_days">Validade em Dias</label>
+                            <input type="number" name="plan_days" id="plan_days" required value="30" placeholder="30">
+                        </div>
+                        <button type="submit" name="create_plan" class="btn btn-primary" style="width: 100%;">
+                            <i data-lucide="plus"></i>
+                            Adicionar Plano
+                        </button>
                     </form>
+                </div>
 
-                    <h3 style="font-size:14px; color:rgba(248,250,252,0.6); margin-bottom:10px;">Planos Ativos</h3>
+                <!-- Tabela: Planos Cadastrados -->
+                <div class="card">
+                    <h2>
+                        <i data-lucide="list" style="color: var(--accent);"></i>
+                        Planos Ativos
+                    </h2>
                     <?php if ( empty( $plans ) ): ?>
-                        <p style="font-size:12px; color:rgba(248,250,252,0.4);">Nenhum plano cadastrado.</p>
+                        <p style="color: var(--text-sub); font-size: 14px;">Nenhum plano cadastrado.</p>
                     <?php else: ?>
                         <div class="table-responsive">
-                            <table style="font-size:12px;">
+                            <table>
                                 <thead>
                                     <tr>
-                                        <th>Nome</th>
-                                        <th>Valor</th>
-                                        <th>Dias</th>
-                                        <th>Ação</th>
+                                        <th>Nome do Plano</th>
+                                        <th>Valor R$</th>
+                                        <th>Validade (Dias)</th>
+                                        <th>Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach ( $plans as $p ): ?>
                                         <tr>
-                                            <td style="font-weight:600;"><?php echo esc_html( $p['name'] ); ?></td>
-                                            <td style="color:#10b981; font-weight:bold;">R$ <?php echo number_format( $p['price'], 2, ',', '.' ); ?></td>
-                                            <td><?php echo $p['duration_days']; ?> d</td>
+                                            <td style="font-weight: 700; color: #fff;"><?php echo esc_html( $p['name'] ); ?></td>
+                                            <td style="color: #34d399; font-weight: 800; font-size: 16px;">R$ <?php echo number_format( $p['price'], 2, ',', '.' ); ?></td>
+                                            <td><span class="badge badge-active"><?php echo $p['duration_days']; ?> dias</span></td>
                                             <td>
-                                                <a href="?delete_plan=<?php echo $p['id']; ?>" class="btn btn-danger" style="padding:4px 8px; font-size:10px;" onclick="return confirm('Excluir este plano?')">Excluir</a>
+                                                <a href="index.php?page=plans&delete_plan=<?php echo $p['id']; ?>" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('Excluir este plano?')">
+                                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                                                    Excluir
+                                                </a>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -672,99 +542,225 @@ if ( ! empty( $db_api_key ) ) {
                 </div>
             </div>
 
-            <!-- Listagem de Licenças -->
-            <div>
+        <?php elseif ( $page === 'settings' ): ?>
+            <!-- ── PÁGINA 3: CONFIGURAÇÕES ASAAS ──────────────────────────────── -->
+            <div class="page-title">
+                <i data-lucide="sliders" style="color: var(--accent);"></i>
+                Configurações do Asaas & Gateway
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                <!-- Card: Formulário de Conexão -->
                 <div class="card">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                        <h2>Licenças Cadastradas</h2>
-                        <form action="" method="GET" class="search-bar">
-                            <input type="text" name="search" placeholder="Buscar por chave ou e-mail..." value="<?php echo esc_html( $search ); ?>">
-                            <button type="submit" class="btn btn-secondary">Buscar</button>
-                        </form>
+                    <div class="card-header">
+                        <h2>
+                            <i data-lucide="link-2" style="color: var(--accent);"></i>
+                            Integração Asaas
+                        </h2>
+                        <span class="badge <?php echo $asaas_class; ?>">
+                            <i data-lucide="activity" style="width: 14px; height: 14px;"></i>
+                            <?php echo $asaas_status; ?>
+                        </span>
                     </div>
 
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Chave</th>
-                                    <th>Cliente / E-mail</th>
-                                    <th>Domínio(s)</th>
-                                    <th>Status</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php if ( empty( $licenses ) ): ?>
-                                    <tr>
-                                        <td colspan="5" style="text-align:center; color:rgba(248, 250, 252, 0.4); padding:40px;">
-                                            Nenhuma licença encontrada.
-                                        </td>
-                                    </tr>
-                                <?php else: ?>
-                                    <?php foreach ( $licenses as $lic ): ?>
-                                        <tr>
-                                            <td>
-                                                <span class="license-key-col"><?php echo esc_html( $lic['license_key'] ); ?></span>
-                                                <?php if ( $lic['asaas_subscription_id'] ): ?>
-                                                    <div style="font-size:10px; color:#a78bfa; margin-top:6px; font-family:monospace;">
-                                                        <?php echo esc_html( $lic['asaas_subscription_id'] ); ?>
-                                                    </div>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <div style="font-weight:600;"><?php echo esc_html( $lic['client_email'] ); ?></div>
-                                                <div style="font-size:11px; color:rgba(248, 250, 252, 0.4); margin-top:4px;">
-                                                    Gerada em: <?php echo date( 'd/m/Y H:i', strtotime( $lic['created_at'] ) ); ?>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <?php if ( $lic['domains'] ): ?>
-                                                    <?php foreach ( explode( ', ', $lic['domains'] ) as $dom ): ?>
-                                                        <span class="domain-tag"><?php echo esc_html( $dom ); ?></span>
-                                                    <?php endforeach; ?>
-                                                <?php else: ?>
-                                                    <span style="font-style:italic; color:rgba(248, 250, 252, 0.3); font-size:12px;">Nenhum</span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <form action="" method="POST" style="display:inline;">
-                                                    <input type="hidden" name="license_id" value="<?php echo $lic['id']; ?>">
-                                                    <select name="status" onchange="this.form.submit()" style="padding:6px; width:auto; font-size:12px; font-weight:600; border-radius:6px; background:#181524;">
-                                                        <option value="ACTIVE" <?php selected( $lic['status'], 'ACTIVE' ); ?>>Ativo</option>
-                                                        <option value="SUSPENDED" <?php selected( $lic['status'], 'SUSPENDED' ); ?>>Suspenso</option>
-                                                        <option value="EXPIRED" <?php selected( $lic['status'], 'EXPIRED' ); ?>>Expirado</option>
-                                                    </select>
-                                                    <input type="hidden" name="update_status" value="1">
-                                                </form>
-                                            </td>
-                                            <td>
-                                                <div style="display:flex; gap:6px;">
-                                                    <a href="?clear_domains=<?php echo $lic['id']; ?>" class="btn btn-secondary" style="padding:6px 10px; font-size:11px;" title="Resetar ativações de domínio" onclick="return confirm('Deseja liberar todos os domínios para esta licença?')">Resetar</a>
-                                                    <a href="?delete_license=<?php echo $lic['id']; ?>" class="btn btn-danger" style="padding:6px 10px; font-size:11px;" title="Excluir" onclick="return confirm('Tem certeza que deseja excluir esta licença?')">Excluir</a>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
-                            </tbody>
-                        </table>
+                    <form action="index.php?page=settings" method="POST">
+                        <div class="form-group">
+                            <label for="asaas_api_key">Chave de API Asaas (access_token)</label>
+                            <input type="password" name="asaas_api_key" id="asaas_api_key" value="<?php echo esc_html( get_setting( 'asaas_api_key' ) ); ?>" placeholder="$aact_...">
+                        </div>
+                        <div class="form-group">
+                            <label for="asaas_environment">Ambiente de Operação</label>
+                            <select name="asaas_environment" id="asaas_environment">
+                                <option value="sandbox" <?php selected( get_setting( 'asaas_environment', 'sandbox' ), 'sandbox' ); ?>>Sandbox (Ambiente de Testes)</option>
+                                <option value="production" <?php selected( get_setting( 'asaas_environment', 'sandbox' ), 'production' ); ?>>Produção (Vendas Reais)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="asaas_payment_link">Link de Pagamento Padrão (Opcional)</label>
+                            <input type="url" name="asaas_payment_link" id="asaas_payment_link" value="<?php echo esc_html( get_setting( 'asaas_payment_link' ) ); ?>" placeholder="https://.../checkout.php">
+                        </div>
+                        <button type="submit" name="save_asaas_settings" class="btn btn-primary" style="width: 100%;">
+                            <i data-lucide="save"></i>
+                            Salvar Configurações
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Card: Checkout Público -->
+                <div class="card">
+                    <h2>
+                        <i data-lucide="shopping-cart" style="color: var(--accent);"></i>
+                        Checkout Público Integrado
+                    </h2>
+                    <p style="font-size: 14px; color: var(--text-sub); margin: 12px 0 20px 0;">
+                        Sua aplicação possui uma página de vendas/checkout pública pronta com integração direta ao Asaas (PIX e Cartão).
+                    </p>
+
+                    <?php $checkout_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['REQUEST_URI'] ?? ''), '/\\') . "/checkout.php"; ?>
+                    
+                    <div class="form-group">
+                        <label>URL do Checkout Público</label>
+                        <input type="text" readonly value="<?php echo esc_html( $checkout_url ); ?>" onclick="this.select()" style="font-family: monospace; font-size: 13px; color: #a78bfa;">
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="btn btn-secondary" onclick="navigator.clipboard.writeText('<?php echo $checkout_url; ?>'); alert('Link copiado!');" style="flex:1;">
+                            <i data-lucide="copy"></i>
+                            Copiar Link
+                        </button>
+                        <a href="<?php echo $checkout_url; ?>" target="_blank" class="btn btn-primary" style="flex:1;">
+                            <i data-lucide="external-link"></i>
+                            Abrir Checkout
+                        </a>
                     </div>
                 </div>
             </div>
-        </div>
+
+        <?php else: ?>
+            <!-- ── PÁGINA 1: GERENCIAMENTO DE LICENÇAS (PADRÃO) ────────────────── -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <div class="page-title" style="margin-bottom: 0;">
+                    <i data-lucide="key" style="color: var(--accent);"></i>
+                    Gerenciamento de Licenças
+                </div>
+                <button class="btn btn-primary" onclick="document.getElementById('modal-create').style.display='block';">
+                    <i data-lucide="plus-circle"></i>
+                    Gerar Nova Licença
+                </button>
+            </div>
+
+            <!-- Card Modal/Form para Criar Licença -->
+            <div id="modal-create" class="card" style="display: none; border-color: var(--accent);">
+                <div class="card-header">
+                    <h2>
+                        <i data-lucide="key-round" style="color: var(--accent);"></i>
+                        Criar Nova Licença Manual
+                    </h2>
+                    <button class="btn btn-secondary" onclick="document.getElementById('modal-create').style.display='none';" style="padding: 6px 12px;">Fechar</button>
+                </div>
+                <form action="index.php?page=licenses" method="POST">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div class="form-group">
+                            <label for="email">E-mail do Cliente</label>
+                            <input type="email" name="email" id="email" required placeholder="cliente@email.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="custom_key">Chave da Licença (Opcional)</label>
+                            <input type="text" name="custom_key" id="custom_key" placeholder="Deixe em branco para autogerar">
+                        </div>
+                        <div class="form-group">
+                            <label for="asaas_subscription_id">ID Assinatura Asaas (Opcional)</label>
+                            <input type="text" name="asaas_subscription_id" id="asaas_subscription_id" placeholder="sub_xxxxxx ou pay_xxxxxx">
+                        </div>
+                        <div class="form-group">
+                            <label for="status">Status Inicial</label>
+                            <select name="status" id="status">
+                                <option value="ACTIVE">Ativo (ACTIVE)</option>
+                                <option value="SUSPENDED">Suspenso (SUSPENDED)</option>
+                                <option value="EXPIRED">Expirado (EXPIRED)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" name="create_license" class="btn btn-primary">
+                        <i data-lucide="check"></i>
+                        Confirmar e Salvar Licença
+                    </button>
+                </form>
+            </div>
+
+            <!-- Tabela de Licenças -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>
+                        <i data-lucide="shield" style="color: var(--accent);"></i>
+                        Licenças Cadastradas (<?php echo count($licenses); ?>)
+                    </h2>
+                    <form action="index.php" method="GET" style="display: flex; gap: 8px;">
+                        <input type="hidden" name="page" value="licenses">
+                        <input type="text" name="search" placeholder="Buscar chave ou e-mail..." value="<?php echo esc_html( $search ); ?>" style="width: 260px;">
+                        <button type="submit" class="btn btn-secondary">
+                            <i data-lucide="search"></i>
+                        </button>
+                    </form>
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Chave de Licença</th>
+                                <th>Cliente / E-mail</th>
+                                <th>Domínios Ativos</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if ( empty( $licenses ) ): ?>
+                                <tr>
+                                    <td colspan="5" style="text-align: center; color: var(--text-sub); padding: 40px;">
+                                        Nenhuma licença encontrada.
+                                    </td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ( $licenses as $lic ): ?>
+                                    <tr>
+                                        <td>
+                                            <span style="font-family: monospace; font-weight: 700; color: #c4b5fd;"><?php echo esc_html( $lic['license_key'] ); ?></span>
+                                            <?php if ( $lic['asaas_subscription_id'] ): ?>
+                                                <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px; font-family: monospace;">
+                                                    Asaas: <?php echo esc_html( $lic['asaas_subscription_id'] ); ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <div style="font-weight: 600; color: #fff;"><?php echo esc_html( $lic['client_email'] ); ?></div>
+                                            <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px;">
+                                                Gerada em: <?php echo date( 'd/m/Y H:i', strtotime( $lic['created_at'] ) ); ?>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <?php if ( $lic['domains'] ): ?>
+                                                <?php foreach ( explode( ', ', $lic['domains'] ) as $dom ): ?>
+                                                    <span class="domain-tag"><?php echo esc_html( $dom ); ?></span>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <span style="font-style: italic; color: var(--text-sub); font-size: 12px;">Nenhum</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <form action="index.php?page=licenses" method="POST" style="display: inline;">
+                                                <input type="hidden" name="license_id" value="<?php echo $lic['id']; ?>">
+                                                <select name="status" onchange="this.form.submit()" style="padding: 6px 10px; font-size: 12px; font-weight: 700; width: auto;">
+                                                    <option value="ACTIVE" <?php selected( $lic['status'], 'ACTIVE' ); ?>>🟢 Ativo</option>
+                                                    <option value="SUSPENDED" <?php selected( $lic['status'], 'SUSPENDED' ); ?>>🟠 Suspenso</option>
+                                                    <option value="EXPIRED" <?php selected( $lic['status'], 'EXPIRED' ); ?>>🔴 Expirado</option>
+                                                </select>
+                                                <input type="hidden" name="update_status" value="1">
+                                            </form>
+                                        </td>
+                                        <td>
+                                            <div style="display: flex; gap: 6px;">
+                                                <a href="index.php?page=licenses&clear_domains=<?php echo $lic['id']; ?>" class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;" title="Resetar Domínio" onclick="return confirm('Liberar domínios da licença?')">
+                                                    <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+                                                    Reset
+                                                </a>
+                                                <a href="index.php?page=licenses&delete_license=<?php echo $lic['id']; ?>" class="btn btn-danger" style="padding: 6px 10px; font-size: 12px;" title="Excluir" onclick="return confirm('Excluir licença?')">
+                                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        <?php endif; ?>
+
     </div>
+
+    <script>lucide.createIcons();</script>
 </body>
 </html>
-<?php
-// Auxiliar helper para select do WordPress (simulado para standalone PHP)
-function selected( $val1, $val2, $echo = true ) {
-    $result = $val1 === $val2 ? 'selected="selected"' : '';
-    if ( $echo ) {
-        echo $result;
-    }
-    return $result;
-}
-function esc_html( $str ) {
-    return htmlspecialchars( $str, ENT_QUOTES, 'UTF-8' );
-}
