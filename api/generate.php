@@ -106,7 +106,10 @@ function handle_text_generation( string $provider, string $key, string $prompt, 
 }
 
 function call_openai_chat( string $key, string $prompt, string $system, array $opts ): array {
-    $model      = $opts['model'] ?? 'gpt-4o';
+    if ( empty( $opts['model'] ) ) {
+        return [ 'success' => false, 'message' => 'Modelo OpenAI não especificado.' ];
+    }
+    $model      = $opts['model'];
     $max_tokens = (int) ( $opts['max_tokens'] ?? 6000 );
 
     $payload = [
@@ -135,7 +138,10 @@ function call_openai_chat( string $key, string $prompt, string $system, array $o
 }
 
 function call_gemini_chat( string $key, string $prompt, string $system, array $opts ): array {
-    $model = $opts['model'] ?? 'gemini-2.0-flash';
+    if ( empty( $opts['model'] ) ) {
+        return [ 'success' => false, 'message' => 'Modelo Gemini não especificado.' ];
+    }
+    $model = $opts['model'];
     $url   = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$key}";
 
     $combined_prompt = "Instruções do Sistema:\n{$system}\n\nTarefa:\n{$prompt}";
@@ -165,7 +171,10 @@ function call_gemini_chat( string $key, string $prompt, string $system, array $o
 }
 
 function call_anthropic_chat( string $key, string $prompt, string $system, array $opts ): array {
-    $model      = $opts['model'] ?? 'claude-sonnet-4-5';
+    if ( empty( $opts['model'] ) ) {
+        return [ 'success' => false, 'message' => 'Modelo Anthropic não especificado.' ];
+    }
+    $model      = $opts['model'];
     $max_tokens = (int) ( $opts['max_tokens'] ?? 6000 );
 
     $payload = [
@@ -195,7 +204,10 @@ function call_anthropic_chat( string $key, string $prompt, string $system, array
 }
 
 function call_deepseek_chat( string $key, string $prompt, string $system, array $opts ): array {
-    $model      = $opts['model'] ?? 'deepseek-chat';
+    if ( empty( $opts['model'] ) ) {
+        return [ 'success' => false, 'message' => 'Modelo DeepSeek não especificado.' ];
+    }
+    $model      = $opts['model'];
     $max_tokens = (int) ( $opts['max_tokens'] ?? 6000 );
 
     $payload = [
