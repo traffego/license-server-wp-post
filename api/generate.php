@@ -323,7 +323,7 @@ function call_dalle3( string $key, string $prompt, array $opts ): array {
 function call_gemini_imagen( string $key, string $prompt, array $opts ): array {
     if ( empty( $key ) ) return [ 'success' => false, 'message' => 'Chave de API Gemini ausente.' ];
 
-    $model = $opts['model'] ?? 'imagen-4.0-generate-001';
+    $model = ! empty( $opts['model'] ) ? $opts['model'] : 'imagen-3.0-generate-002';
     $url   = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:predict?key={$key}";
 
     $payload = [
