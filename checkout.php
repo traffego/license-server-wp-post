@@ -24,11 +24,25 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
     $cpfCnpj        = preg_replace( '/\D/', '', $_POST['cpfCnpj'] ?? '' );
     $phone          = preg_replace( '/\D/', '', $_POST['phone'] ?? '' );
     $payment_method = strtoupper( trim( $_POST['payment_method'] ?? 'PIX' ) );
-    $amount         = (float) ( $_POST['amount'] ?? 49.90 );
+    $plan_id        = (int) ( $_POST['plan_id'] ?? 0 );
 
     if ( empty( $name ) || ! $email || empty( $cpfCnpj ) ) {
         echo json_encode( [ 'success' => false, 'message' => 'Por favor, preencha Nome, E-mail e CPF/CNPJ válidos.' ] );
         exit;
+    }
+
+    $db        = get_db_connection();
+    $amount    = 49.90;
+    $plan_desc = 'Licença WP AI Publisher';
+
+    if ( $plan_id > 0 ) {
+        $stmt = $db->prepare( "SELECT * FROM plans WHERE id = ? LIMIT 1" );
+        $stmt->execute( [ $plan_id ] );
+        $selected_plan = $stmt->fetch();
+        if ( $selected_plan ) {
+            $amount    = (float) $selected_plan['price'];
+            $plan_desc = 'Licença WP AI Publisher - ' . $selected_plan['name'];
+        }
     }
 
     // Helper cURL para API Asaas
@@ -144,10 +158,7 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
                 'encodedImage' => $pix_res['data']['encodedImage'] ?? '',
                 'expirationDate' => $pix_res['data']['expirationDate'] ?? '',
             ];
-        }
-    }
-
-    echo json_encode( [
+      echo json_encode( [
         'success'        => true,
         'license_key'    => $license_key,
         'status'         => $initial_status,
@@ -157,6 +168,10 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
     ] );
     exit;
 }
+
+$db = get_db_connection();
+$plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
+$first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price'], 2, ',', '.' ) : '49,90';
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -229,7 +244,7 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
             <p style="color: var(--text-sub); font-size: 14px;">Plugin de Automação e Geração de Conteúdo com Inteligência Artificial para WordPress.</p>
             
             <div class="price-box">
-                <div class="price">R$ 49,90 <span>/ licença</span></div>
+                <div class="price" id="display-price">R$ <?php echo $first_price; ?> <span>/ licença</span></div>
                 <div style="font-size: 12px; color: var(--text-sub); margin-top: 4px;">Acesso aos modelos OpenAI, Gemini, Claude, DeepSeek e imagens.</div>
             </div>
 
@@ -255,6 +270,19 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
             <form id="checkout-form">
                 <input type="hidden" name="action" value="process_checkout">
                 
+                <?php if ( ! empty( $plans ) ): ?>
+                <div class="form-group">
+                    <label for="plan_id">Plano de Assinatura</label>
+                    <select id="plan_id" name="plan_id" onchange="updateSelectedPrice(this)" style="font-weight: 600; background: #261f3e; border-color: var(--accent);">
+                        <?php foreach ( $plans as $p ): ?>
+                            <option value="<?php echo $p['id']; ?>" data-price="<?php echo number_format( $p['price'], 2, '.', '' ); ?>">
+                                <?php echo esc_html( $p['name'] ); ?> - R$ <?php echo number_format( $p['price'], 2, ',', '.' ); ?> (<?php echo $p['duration_days']; ?> dias)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
+
                 <div class="form-group">
                     <label for="name">Nome Completo</label>
                     <input type="text" id="name" name="name" required placeholder="Seu nome completo">
@@ -335,6 +363,14 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 </div>
 
 <script>
+    function updateSelectedPrice(select) {
+        const option = select.options[select.selectedIndex];
+        const price = option.getAttribute('data-price') || '49.90';
+        const formatted = parseFloat(price).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        document.getElementById('btn-pay').innerText = 'Pagar R$ ' + formatted;
+        document.getElementById('display-price').innerText = 'R$ ' + formatted;
+    }
+
     function setPaymentMethod(method) {
         document.getElementById('payment_method').value = method;
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));

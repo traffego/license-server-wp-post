@@ -191,6 +191,37 @@ if ( isset( $_POST['save_asaas_settings'] ) ) {
     }
 }
 
+// Criar novo plano
+if ( isset( $_POST['create_plan'] ) ) {
+    $plan_name  = trim( $_POST['plan_name'] ?? '' );
+    $plan_price = (float) ( $_POST['plan_price'] ?? 0 );
+    $plan_days  = (int) ( $_POST['plan_days'] ?? 30 );
+
+    if ( empty( $plan_name ) || $plan_price <= 0 ) {
+        $error = 'Nome do plano e preço válidos são obrigatórios.';
+    } else {
+        try {
+            $stmt = $db->prepare( "INSERT INTO plans (name, price, duration_days) VALUES (?, ?, ?)" );
+            $stmt->execute( [ $plan_name, $plan_price, $plan_days ] );
+            $message = "Plano '{$plan_name}' criado com sucesso!";
+        } catch ( PDOException $e ) {
+            $error = 'Erro ao criar plano: ' . $e->getMessage();
+        }
+    }
+}
+
+// Excluir plano
+if ( isset( $_GET['delete_plan'] ) ) {
+    $plan_id = (int) $_GET['delete_plan'];
+    try {
+        $stmt = $db->prepare( "DELETE FROM plans WHERE id = ?" );
+        $stmt->execute( [ $plan_id ] );
+        $message = "Plano excluído com sucesso.";
+    } catch ( PDOException $e ) {
+        $error = 'Erro ao excluir plano: ' . $e->getMessage();
+    }
+}
+
 // Criar nova licença
 if ( isset( $_POST['create_license'] ) ) {
     $email = filter_var( $_POST['email'] ?? '', FILTER_VALIDATE_EMAIL );
@@ -272,6 +303,9 @@ if ( ! empty( $search ) ) {
                          ORDER BY l.id DESC" );
 }
 $licenses = $stmt->fetchAll();
+
+// Buscar planos cadastrados
+$plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
 
 // Testar Asaas API
 $asaas_status = 'Não configurado';
@@ -584,6 +618,57 @@ if ( ! empty( $db_api_key ) ) {
                         </div>
                         <button type="submit" name="save_asaas_settings" class="btn btn-primary" style="width:100%;">Salvar Configurações</button>
                     </form>
+                </div>
+
+                <div class="card" style="margin-top: 30px;">
+                    <h2>Planos de Assinatura</h2>
+                    <form action="" method="POST" style="margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label for="plan_name">Nome do Plano</label>
+                            <input type="text" name="plan_name" id="plan_name" required placeholder="Ex: Plano Mensal, Anual">
+                        </div>
+                        <div style="display:flex; gap:10px;">
+                            <div class="form-group" style="flex:1;">
+                                <label for="plan_price">Preço (R$)</label>
+                                <input type="number" step="0.01" name="plan_price" id="plan_price" required placeholder="49.90">
+                            </div>
+                            <div class="form-group" style="flex:1;">
+                                <label for="plan_days">Validade (Dias)</label>
+                                <input type="number" name="plan_days" id="plan_days" required value="30" placeholder="30">
+                            </div>
+                        </div>
+                        <button type="submit" name="create_plan" class="btn btn-primary" style="width:100%;">Adicionar Plano</button>
+                    </form>
+
+                    <h3 style="font-size:14px; color:rgba(248,250,252,0.6); margin-bottom:10px;">Planos Ativos</h3>
+                    <?php if ( empty( $plans ) ): ?>
+                        <p style="font-size:12px; color:rgba(248,250,252,0.4);">Nenhum plano cadastrado.</p>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table style="font-size:12px;">
+                                <thead>
+                                    <tr>
+                                        <th>Nome</th>
+                                        <th>Valor</th>
+                                        <th>Dias</th>
+                                        <th>Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ( $plans as $p ): ?>
+                                        <tr>
+                                            <td style="font-weight:600;"><?php echo esc_html( $p['name'] ); ?></td>
+                                            <td style="color:#10b981; font-weight:bold;">R$ <?php echo number_format( $p['price'], 2, ',', '.' ); ?></td>
+                                            <td><?php echo $p['duration_days']; ?> d</td>
+                                            <td>
+                                                <a href="?delete_plan=<?php echo $p['id']; ?>" class="btn btn-danger" style="padding:4px 8px; font-size:10px;" onclick="return confirm('Excluir este plano?')">Excluir</a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
 

@@ -65,6 +65,23 @@ try {
         ) ENGINE=InnoDB;
     " );
 
+    // 5. Criar tabela 'plans' se não existir
+    $pdo->exec( "
+        CREATE TABLE IF NOT EXISTS `plans` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `name` VARCHAR(255) NOT NULL,
+            `price` DECIMAL(10,2) NOT NULL,
+            `duration_days` INT NOT NULL DEFAULT 30,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB;
+    " );
+
+    // Inicializar plano padrão se tabela vazia
+    $check_plans = $pdo->query( "SELECT COUNT(*) FROM plans" )->fetchColumn();
+    if ( (int) $check_plans === 0 ) {
+        $pdo->exec( "INSERT INTO plans (name, price, duration_days) VALUES ('Plano Mensal', 49.90, 30)" );
+    }
+
     // Inicializar configurações padrões se vazias
     $defaults = [
         'asaas_api_key'      => '',
