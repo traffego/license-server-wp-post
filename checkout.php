@@ -4,6 +4,10 @@
  * Permite compra de nova licença ou renovação de licença existente via PIX ou Cartão.
  */
 
+if ( function_exists( 'opcache_reset' ) ) {
+    @opcache_reset();
+}
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 
@@ -196,34 +200,38 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 }
 
 // ── GET: Carregar Dados e Planos ──────────────────────────────────────────────
-$db    = get_db_connection();
-$plans = [];
+$db       = get_db_connection();
+$db_plans = [];
 
 try {
-    $plans = $db->query( "SELECT * FROM plans WHERE name IS NOT NULL AND name != '' ORDER BY price ASC" )->fetchAll();
+    $db_plans = $db->query( "SELECT * FROM plans WHERE name IS NOT NULL AND name != '' ORDER BY price ASC" )->fetchAll();
 } catch ( Exception $e ) {
-    $plans = [];
+    $db_plans = [];
 }
 
-// Se o banco não tiver os 3 planos corretos, regravar no MySQL ou usar o array fallback
-if ( empty( $plans ) || count( $plans ) < 3 ) {
+if ( count( $db_plans ) < 3 ) {
     try {
-        $db->exec( "DELETE FROM `plans`" );
+        $db->exec( "TRUNCATE TABLE `plans`" );
         $db->exec( "
             INSERT INTO plans (id, name, price, duration_days) VALUES 
             (1, 'Plano Mensal - Starter', 49.90, 30),
             (2, 'Plano Trimestral - Pro', 129.90, 90),
             (3, 'Plano Anual - Agência', 399.00, 365);
         " );
-        $plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
+        $db_plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
     } catch ( Exception $e ) {
-        // Fallback em código para garantir 100% de exibição dos 3 planos
-        $plans = [
-            [ 'id' => 1, 'name' => 'Plano Mensal - Starter', 'price' => 49.90, 'duration_days' => 30 ],
-            [ 'id' => 2, 'name' => 'Plano Trimestral - Pro', 'price' => 129.90, 'duration_days' => 90 ],
-            [ 'id' => 3, 'name' => 'Plano Anual - Agência', 'price' => 399.00, 'duration_days' => 365 ],
-        ];
+        // Ignore
     }
+}
+
+if ( count( $db_plans ) >= 3 ) {
+    $plans = $db_plans;
+} else {
+    $plans = [
+        [ 'id' => 1, 'name' => 'Plano Mensal - Starter', 'price' => 49.90, 'duration_days' => 30 ],
+        [ 'id' => 2, 'name' => 'Plano Trimestral - Pro', 'price' => 129.90, 'duration_days' => 90 ],
+        [ 'id' => 3, 'name' => 'Plano Anual - Agência', 'price' => 399.00, 'duration_days' => 365 ],
+    ];
 }
 
 // Verificar se veio com chave de licença para renovação
