@@ -323,30 +323,51 @@ function call_dalle3( string $key, string $prompt, array $opts ): array {
 function call_gemini_imagen( string $key, string $prompt, array $opts ): array {
     if ( empty( $key ) ) return [ 'success' => false, 'message' => 'Chave de API Gemini ausente.' ];
 
-    $model = ! empty( $opts['model'] ) ? $opts['model'] : 'imagen-3.0-generate-002';
-    $url   = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:predict?key={$key}";
+    $model = ! empty( $opts['model'] ) ? $opts['model'] : 'gemini-2.5-flash-image';
 
-    $payload = [
-        'instances'  => [ [ 'prompt' => $prompt ] ],
-        'parameters' => [
-            'sampleCount'  => 1,
-            'aspectRatio'  => $opts['aspect_ratio'] ?? '16:9',
-        ],
-    ];
+    // Modelos legados 'imagen-*' usam o endpoint :predict
+    if ( strpos( $model, 'imagen' ) !== false ) {
+        $url     = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:predict?key={$key}";
+        $payload = [
+            'instances'  => [ [ 'prompt' => $prompt ] ],
+            'parameters' => [
+                'sampleCount' => 1,
+                'aspectRatio' => $opts['aspect_ratio'] ?? '16:9',
+            ],
+        ];
+        $res = curl_post( $url, json_encode( $payload ), [ 'Content-Type: application/json' ] );
+        if ( ! $res['success'] ) return $res;
 
-    $res = curl_post( $url, json_encode( $payload ), [
-        'Content-Type: application/json'
-    ] );
-
-    if ( ! $res['success'] ) return $res;
-
-    $data = json_decode( $res['body'], true );
-    $b64  = $data['predictions'][0]['bytesBase64Encoded'] ?? '';
-    if ( empty( $b64 ) ) {
-        return [ 'success' => false, 'message' => 'Imagem não retornada pelo Imagen.' ];
+        $data = json_decode( $res['body'], true );
+        $b64  = $data['predictions'][0]['bytesBase64Encoded'] ?? '';
+        if ( empty( $b64 ) ) return [ 'success' => false, 'message' => 'Imagem não retornada pelo Imagen.' ];
+        return [ 'success' => true, 'base64' => $b64, 'message' => '' ];
     }
 
-    // O plugin sabe lidar com dados base64 brutos
+    // Modelos modernos 'gemini-*-image' usam o endpoint :generateContent
+    $url     = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$key}";
+    $payload = [
+        'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
+        'generationConfig' => [ 'responseModalities' => [ 'IMAGE' ] ],
+    ];
+
+    $res = curl_post( $url, json_encode( $payload ), [ 'Content-Type: application/json' ] );
+    if ( ! $res['success'] ) return $res;
+
+    $data  = json_decode( $res['body'], true );
+    $parts = $data['candidates'][0]['content']['parts'] ?? [];
+    $b64   = '';
+    foreach ( $parts as $p ) {
+        if ( ! empty( $p['inlineData']['data'] ) ) {
+            $b64 = $p['inlineData']['data'];
+            break;
+        }
+    }
+
+    if ( empty( $b64 ) ) {
+        return [ 'success' => false, 'message' => 'Imagem não retornada pelo Gemini.' ];
+    }
+
     return [ 'success' => true, 'base64' => $b64, 'message' => '' ];
 }
 
