@@ -1,7 +1,7 @@
 <?php
 /**
- * Checkout Público Integrado ao Asaas.
- * Permite compra da licença do plugin via PIX ou Cartão de Crédito.
+ * Checkout Público Integrado ao Asaas com Suporte a Renovação de Licença.
+ * Permite compra de nova licença ou renovação de licença existente via PIX ou Cartão.
  */
 
 require_once __DIR__ . '/config.php';
@@ -25,6 +25,7 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
     $phone          = preg_replace( '/\D/', '', $_POST['phone'] ?? '' );
     $payment_method = strtoupper( trim( $_POST['payment_method'] ?? 'PIX' ) );
     $plan_id        = (int) ( $_POST['plan_id'] ?? 0 );
+    $renewal_key    = trim( $_POST['renewal_key'] ?? '' );
 
     if ( empty( $name ) || ! $email || empty( $cpfCnpj ) ) {
         echo json_encode( [ 'success' => false, 'message' => 'Por favor, preencha Nome, E-mail e CPF/CNPJ válidos.' ] );
@@ -84,9 +85,9 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         $customer_id = $cust_res['data']['data'][0]['id'];
     } else {
         $create_cust = call_asaas_api( '/v3/customers', 'POST', [
-            'name'     => $name,
-            'email'    => $email,
-            'cpfCnpj'  => $cpfCnpj,
+            'name'        => $name,
+            'email'       => $email,
+            'cpfCnpj'     => $cpfCnpj,
             'mobilePhone' => $phone,
         ] );
 
@@ -104,7 +105,7 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         'billingType' => $payment_method,
         'value'       => $amount,
         'dueDate'     => date( 'Y-m-d' ),
-        'description' => 'Licença WP AI Publisher - ' . $email,
+        'description' => $plan_desc . ' - ' . $email,
     ];
 
     if ( $payment_method === 'CREDIT_CARD' ) {
@@ -116,12 +117,12 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
             'ccv'         => trim( $_POST['card_ccv'] ?? '' ),
         ];
         $payment_payload['creditCardHolderInfo'] = [
-            'name'        => $name,
-            'email'       => $email,
-            'cpfCnpj'     => $cpfCnpj,
-            'postalCode'  => preg_replace( '/\D/', '', $_POST['postal_code'] ?? '00000000' ),
+            'name'          => $name,
+            'email'         => $email,
+            'cpfCnpj'       => $cpfCnpj,
+            'postalCode'    => preg_replace( '/\D/', '', $_POST['postal_code'] ?? '00000000' ),
             'addressNumber' => '1',
-            'mobilePhone' => $phone,
+            'mobilePhone'   => $phone,
         ];
     }
 
@@ -133,19 +134,40 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         exit;
     }
 
-    $payment_id    = $pay_res['data']['id'];
+    $payment_id     = $pay_res['data']['id'];
     $initial_status = ( $payment_method === 'CREDIT_CARD' && ( $pay_res['data']['status'] ?? '' ) === 'RECEIVED' ) ? 'ACTIVE' : 'SUSPENDED';
 
-    // 3. Gerar Chave de Licença no MySQL
-    $license_key = 'WPAIP-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) );
+    // 3. Processar Chave de Licença (Renovação vs Nova Licença)
+    $final_license_key = '';
 
-    try {
-        $db = get_db_connection();
-        $stmt = $db->prepare( "INSERT INTO licenses (license_key, client_email, status, asaas_customer_id, asaas_subscription_id) VALUES (?, ?, ?, ?, ?)" );
-        $stmt->execute( [ $license_key, $email, $initial_status, $customer_id, $payment_id ] );
-    } catch ( Exception $e ) {
-        echo json_encode( [ 'success' => false, 'message' => 'Erro ao salvar licença no banco: ' . $e->getMessage() ] );
-        exit;
+    if ( ! empty( $renewal_key ) ) {
+        // Verificar se a licença informada existe no banco
+        $stmt_check = $db->prepare( "SELECT * FROM licenses WHERE license_key = ? LIMIT 1" );
+        $stmt_check->execute( [ $renewal_key ] );
+        $existing_lic = $stmt_check->fetch();
+
+        if ( $existing_lic ) {
+            $final_license_key = $existing_lic['license_key'];
+            try {
+                $stmt = $db->prepare( "UPDATE licenses SET status = ?, asaas_customer_id = ?, asaas_subscription_id = ? WHERE license_key = ?" );
+                $stmt->execute( [ $initial_status, $customer_id, $payment_id, $final_license_key ] );
+            } catch ( Exception $e ) {
+                echo json_encode( [ 'success' => false, 'message' => 'Erro ao renovar licença: ' . $e->getMessage() ] );
+                exit;
+            }
+        }
+    }
+
+    if ( empty( $final_license_key ) ) {
+        // Criar Nova Licença
+        $final_license_key = 'WPAIP-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) );
+        try {
+            $stmt = $db->prepare( "INSERT INTO licenses (license_key, client_email, status, asaas_customer_id, asaas_subscription_id) VALUES (?, ?, ?, ?, ?)" );
+            $stmt->execute( [ $final_license_key, $email, $initial_status, $customer_id, $payment_id ] );
+        } catch ( Exception $e ) {
+            echo json_encode( [ 'success' => false, 'message' => 'Erro ao criar nova licença: ' . $e->getMessage() ] );
+            exit;
+        }
     }
 
     // 4. Se PIX, buscar dados do QR Code
@@ -163,17 +185,30 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 
     echo json_encode( [
         'success'        => true,
-        'license_key'    => $license_key,
+        'license_key'    => $final_license_key,
         'status'         => $initial_status,
         'payment_method' => $payment_method,
+        'is_renewal'     => ! empty( $renewal_key ),
         'pix'            => $pix_data,
         'message'        => 'Checkout processado com sucesso!',
     ] );
     exit;
 }
 
-$db = get_db_connection();
+// ── GET: Carregar Dados e Planos ──────────────────────────────────────────────
+$db    = get_db_connection();
 $plans = $db->query( "SELECT * FROM plans ORDER BY price ASC" )->fetchAll();
+
+// Verificar se veio com chave de licença para renovação
+$param_key       = trim( $_GET['key'] ?? $_GET['license_key'] ?? '' );
+$renewal_license = null;
+
+if ( ! empty( $param_key ) ) {
+    $stmt = $db->prepare( "SELECT * FROM licenses WHERE license_key = ? LIMIT 1" );
+    $stmt->execute( [ $param_key ] );
+    $renewal_license = $stmt->fetch();
+}
+
 $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price'], 2, ',', '.' ) : '49,90';
 ?>
 <!DOCTYPE html>
@@ -181,7 +216,7 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Checkout - Licença WP AI Publisher</title>
+    <title><?php echo $renewal_license ? 'Renovação de Licença' : 'Checkout'; ?> — WP AI Publisher</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -201,20 +236,96 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
         body { background-color: var(--bg-color); color: var(--text-main); min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; }
 
-        .container { width: 100%; max-width: 900px; display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        .container { width: 100%; max-width: 920px; display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
         @media (max-width: 768px) { .container { grid-template-columns: 1fr; } }
 
         .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
 
         .product-summary { display: flex; flex-direction: column; justify-content: space-between; }
         .product-title { font-size: 24px; font-weight: 800; background: linear-gradient(135deg, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
-        .price-box { margin: 25px 0; padding: 20px; background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 12px; }
+        .price-box { margin: 20px 0; padding: 20px; background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 12px; }
         .price { font-size: 36px; font-weight: 800; color: #fff; }
         .price span { font-size: 14px; color: var(--text-sub); font-weight: 400; }
 
         .features-list { list-style: none; margin-top: 15px; }
         .features-list li { margin-bottom: 12px; font-size: 14px; color: var(--text-sub); display: flex; align-items: center; gap: 10px; }
         .features-list li::before { content: "✓"; color: var(--success); font-weight: bold; }
+
+        /* Banner de Renovação */
+        .renewal-banner {
+            background: rgba(124, 58, 237, 0.15);
+            border: 1px solid rgba(124, 58, 237, 0.4);
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+        .renewal-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #c4b5fd;
+            margin-bottom: 4px;
+        }
+        .renewal-key {
+            font-size: 15px;
+            font-family: monospace;
+            font-weight: 800;
+            color: #fff;
+        }
+
+        /* Seletor Visual de Planos (Cards Grid) */
+        .plans-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .plan-card {
+            background: var(--input-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .plan-card:hover {
+            border-color: rgba(124, 58, 237, 0.6);
+            transform: translateY(-2px);
+        }
+        .plan-card.selected {
+            border-color: var(--accent);
+            background: rgba(124, 58, 237, 0.18);
+            box-shadow: 0 0 15px rgba(124, 58, 237, 0.3);
+        }
+        .plan-badge {
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #c4b5fd;
+            background: rgba(124, 58, 237, 0.25);
+            padding: 2px 6px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-bottom: 6px;
+        }
+        .plan-name {
+            font-size: 12px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+        .plan-price .currency {
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+        .plan-price .amount {
+            font-size: 16px;
+            font-weight: 800;
+            color: #34d399;
+        }
 
         .form-group { margin-bottom: 18px; }
         label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-sub); margin-bottom: 8px; }
@@ -230,7 +341,6 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
 
         .alert-error { background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #f87171; padding: 14px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; display: none; }
 
-        /* Modal / Result Screen */
         .result-box { display: none; text-align: center; }
         .key-display { background: #110d21; border: 2px dashed var(--accent); padding: 18px; border-radius: 10px; font-family: monospace; font-size: 18px; font-weight: bold; color: #a78bfa; margin: 20px 0; word-break: break-all; }
         .btn-copy { background: #2e264d; border: 1px solid var(--border-color); color: #fff; padding: 10px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -247,7 +357,7 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
             <p style="color: var(--text-sub); font-size: 14px;">Plugin de Automação e Geração de Conteúdo com Inteligência Artificial para WordPress.</p>
             
             <div class="price-box">
-                <div class="price" id="display-price">R$ <?php echo $first_price; ?> <span>/ licença</span></div>
+                <div class="price" id="display-price">R$ <?php echo $first_price; ?> <span>/ plano</span></div>
                 <div style="font-size: 12px; color: var(--text-sub); margin-top: 4px;">Acesso aos modelos OpenAI, Gemini, Claude, DeepSeek e imagens.</div>
             </div>
 
@@ -266,24 +376,42 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
     <!-- Formulário de Checkout -->
     <div class="card">
         <div id="checkout-form-container">
-            <h2 style="font-size: 20px; margin-bottom: 20px;">Dados de Pagamento</h2>
+
+            <?php if ( $renewal_license ): ?>
+                <div class="renewal-banner">
+                    <div class="renewal-title">Renovação de Licença Existente</div>
+                    <div class="renewal-key"><?php echo esc_html( $renewal_license['license_key'] ); ?></div>
+                </div>
+            <?php endif; ?>
+
+            <h2 style="font-size: 20px; margin-bottom: 20px;">
+                <?php echo $renewal_license ? 'Selecione o Plano de Renovação' : 'Dados de Pagamento'; ?>
+            </h2>
 
             <div id="alert-error" class="alert-error"></div>
 
             <form id="checkout-form">
                 <input type="hidden" name="action" value="process_checkout">
+                <?php if ( $renewal_license ): ?>
+                    <input type="hidden" name="renewal_key" value="<?php echo esc_html( $renewal_license['license_key'] ); ?>">
+                <?php endif; ?>
                 
                 <?php if ( ! empty( $plans ) ): ?>
-                <div class="form-group">
-                    <label for="plan_id">Plano de Assinatura</label>
-                    <select id="plan_id" name="plan_id" onchange="updateSelectedPrice(this)" style="font-weight: 600; background: #261f3e; border-color: var(--accent);">
-                        <?php foreach ( $plans as $p ): ?>
-                            <option value="<?php echo $p['id']; ?>" data-price="<?php echo number_format( $p['price'], 2, '.', '' ); ?>">
-                                <?php echo esc_html( $p['name'] ); ?> - R$ <?php echo number_format( $p['price'], 2, ',', '.' ); ?> (<?php echo $p['duration_days']; ?> dias)
-                            </option>
+                    <label>Selecione o Plano</label>
+                    <div class="plans-grid">
+                        <?php foreach ( $plans as $index => $p ): ?>
+                            <div class="plan-card <?php echo $index === 0 ? 'selected' : ''; ?>" 
+                                 onclick="selectPlanCard(this, <?php echo $p['id']; ?>, '<?php echo number_format( $p['price'], 2, '.', '' ); ?>')">
+                                <div class="plan-badge"><?php echo $p['duration_days']; ?> dias</div>
+                                <div class="plan-name"><?php echo esc_html( $p['name'] ); ?></div>
+                                <div class="plan-price">
+                                    <span class="currency">R$</span>
+                                    <span class="amount"><?php echo number_format( $p['price'], 2, ',', '.' ); ?></span>
+                                </div>
+                            </div>
                         <?php endforeach; ?>
-                    </select>
-                </div>
+                    </div>
+                    <input type="hidden" id="plan_id" name="plan_id" value="<?php echo $plans[0]['id'] ?? 0; ?>">
                 <?php endif; ?>
 
                 <div class="form-group">
@@ -292,8 +420,8 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
                 </div>
 
                 <div class="form-group">
-                    <label for="email">E-mail para Receber a Licença</label>
-                    <input type="email" id="email" name="email" required placeholder="seu@email.com">
+                    <label for="email">E-mail de Recebimento da Licença</label>
+                    <input type="email" id="email" name="email" required value="<?php echo esc_html( $renewal_license['client_email'] ?? '' ); ?>" placeholder="seu@email.com" <?php echo $renewal_license ? 'readonly style="background: rgba(124, 58, 237, 0.1); color: #c4b5fd;"' : ''; ?>>
                 </div>
 
                 <div class="form-group">
@@ -338,14 +466,20 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
                     </div>
                 </div>
 
-                <button type="submit" id="btn-pay" class="btn-submit">Pagar R$ 49,90</button>
+                <button type="submit" id="btn-pay" class="btn-submit">
+                    <?php echo $renewal_license ? 'Renovar Licença por R$ ' . $first_price : 'Pagar R$ ' . $first_price; ?>
+                </button>
             </form>
         </div>
 
         <!-- Sucesso / QR Code -->
         <div id="result-box" class="result-box">
-            <h2 style="font-size: 22px; color: var(--success); margin-bottom: 10px;">🎉 Licença Gerada!</h2>
-            <p style="font-size: 13px; color: var(--text-sub);">Copie sua chave de licença abaixo e cole no seu plugin WordPress:</p>
+            <h2 style="font-size: 22px; color: var(--success); margin-bottom: 10px;">
+                🎉 <?php echo $renewal_license ? 'Licença Renovada!' : 'Licença Gerada!'; ?>
+            </h2>
+            <p style="font-size: 13px; color: var(--text-sub);">
+                <?php echo $renewal_license ? 'Sua licença foi renovada com sucesso.' : 'Copie sua chave de licença abaixo e cole no seu plugin WordPress:'; ?>
+            </p>
 
             <div class="key-display" id="generated-key">WPAIP-XXXX-XXXX</div>
             <button class="btn-copy" onclick="copyKey()">📋 Copiar Chave de Licença</button>
@@ -366,11 +500,16 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
 </div>
 
 <script>
-    function updateSelectedPrice(select) {
-        const option = select.options[select.selectedIndex];
-        const price = option.getAttribute('data-price') || '49.90';
-        const formatted = parseFloat(price).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-        document.getElementById('btn-pay').innerText = 'Pagar R$ ' + formatted;
+    const isRenewal = <?php echo $renewal_license ? 'true' : 'false'; ?>;
+
+    function selectPlanCard(card, planId, rawPrice) {
+        document.querySelectorAll('.plan-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        document.getElementById('plan_id').value = planId;
+
+        const formatted = parseFloat(rawPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        const prefix = isRenewal ? 'Renovar Licença por R$ ' : 'Pagar R$ ';
+        document.getElementById('btn-pay').innerText = prefix + formatted;
         document.getElementById('display-price').innerText = 'R$ ' + formatted;
     }
 
@@ -403,7 +542,7 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
         .then(res => res.json())
         .then(data => {
             btn.disabled = false;
-            btn.innerText = 'Pagar R$ 49,90';
+            btn.innerText = isRenewal ? 'Renovar Licença' : 'Pagar';
 
             if (!data.success) {
                 alertError.innerText = data.message;
@@ -425,7 +564,7 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
         })
         .catch(err => {
             btn.disabled = false;
-            btn.innerText = 'Pagar R$ 49,90';
+            btn.innerText = isRenewal ? 'Renovar Licença' : 'Pagar';
             alertError.innerText = 'Erro de comunicação com o servidor.';
             alertError.style.display = 'block';
         });
