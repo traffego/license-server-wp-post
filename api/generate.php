@@ -325,23 +325,9 @@ function call_gemini_imagen( string $key, string $prompt, array $opts ): array {
 
     $model = ! empty( $opts['model'] ) ? $opts['model'] : 'gemini-2.5-flash-image';
 
-    // Modelos legados 'imagen-*' usam o endpoint :predict
+    // Se o modelo for antigo ('imagen-*'), substitui automaticamente pelo novo modelo oficial
     if ( strpos( $model, 'imagen' ) !== false ) {
-        $url     = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:predict?key={$key}";
-        $payload = [
-            'instances'  => [ [ 'prompt' => $prompt ] ],
-            'parameters' => [
-                'sampleCount' => 1,
-                'aspectRatio' => $opts['aspect_ratio'] ?? '16:9',
-            ],
-        ];
-        $res = curl_post( $url, json_encode( $payload ), [ 'Content-Type: application/json' ] );
-        if ( ! $res['success'] ) return $res;
-
-        $data = json_decode( $res['body'], true );
-        $b64  = $data['predictions'][0]['bytesBase64Encoded'] ?? '';
-        if ( empty( $b64 ) ) return [ 'success' => false, 'message' => 'Imagem não retornada pelo Imagen.' ];
-        return [ 'success' => true, 'base64' => $b64, 'message' => '' ];
+        $model = 'gemini-2.5-flash-image';
     }
 
     // Modelos modernos 'gemini-*-image' usam o endpoint :generateContent
