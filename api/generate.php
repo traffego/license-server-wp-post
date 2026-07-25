@@ -494,36 +494,31 @@ function call_apiframe_image( string $key, string $prompt, array $opts ): array 
         $p_code = curl_getinfo( $ch_p, CURLINFO_HTTP_CODE );
         curl_close( $ch_p );
 
-        if ( $p_code !== 200 ) {
-            $ch_p1 = curl_init( 'https://api.apiframe.ai/v1/fetch' );
-            curl_setopt_array( $ch_p1, [
-                CURLOPT_POST           => true,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POSTFIELDS     => json_encode( [ 'task_id' => $job_id ] ),
-                CURLOPT_HTTPHEADER     => [
-                    'Authorization: Bearer ' . $key,
-                    'Content-Type: application/json',
-                ],
-                CURLOPT_TIMEOUT        => 15,
-                CURLOPT_SSL_VERIFYPEER => false,
-            ] );
-            $p_body = curl_exec( $ch_p1 );
-            curl_close( $ch_p1 );
-        }
+        if ( $p_code === 200 ) {
+            $p_data = json_decode( $p_body, true );
+            $status = strtoupper( $p_data['status'] ?? '' );
 
-        $p_data = json_decode( $p_body, true );
-        $status = strtoupper( $p_data['status'] ?? '' );
+            if ( $status === 'COMPLETED' || $status === 'SUCCESS' || $status === 'DONE' || ! empty( $p_data['images'][0] ) ) {
+                // Selecionar sempre a primeira imagem individual isolada (images[0]), evitando o quadros 2x2 (gridUrl)
+                $img_url = '';
+                if ( ! empty( $p_data['images'] ) && is_array( $p_data['images'] ) ) {
+                    $img_url = $p_data['images'][0];
+                } elseif ( ! empty( $p_data['image_url'] ) ) {
+                    $img_url = $p_data['image_url'];
+                } elseif ( ! empty( $p_data['url'] ) ) {
+                    $img_url = $p_data['url'];
+                }
 
-        if ( $status === 'COMPLETED' || $status === 'SUCCESS' || $status === 'DONE' || ! empty( $p_data['images'][0] ) || ! empty( $p_data['image_url'] ) ) {
-            $img_url = $p_data['images'][0] ?? $p_data['image_url'] ?? $p_data['url'] ?? $p_data['gridUrl'] ?? '';
-            if ( ! empty( $img_url ) ) {
-                return [ 'success' => true, 'url' => $img_url, 'message' => '' ];
+                if ( ! empty( $img_url ) ) {
+                    return [ 'success' => true, 'url' => $img_url, 'message' => '' ];
+                }
             }
-        }
 
-        if ( $status === 'FAILED' || $status === 'ERROR' ) {
-            $err_msg = $p_data['error'] ?? $p_data['message'] ?? 'Falha ao processar imagem no APIFrame.';
-            return [ 'success' => false, 'message' => 'APIFrame: ' . $err_msg ];
+            if ( $status === 'FAILED' || $status === 'ERROR' ) {
+                $err_msg = $p_data['error']['message'] ?? $p_data['error'] ?? $p_data['message'] ?? 'Falha ao processar imagem no APIFrame.';
+                if ( is_array( $err_msg ) ) $err_msg = json_encode( $err_msg );
+                return [ 'success' => false, 'message' => 'APIFrame: ' . $err_msg ];
+            }
         }
     }
 
