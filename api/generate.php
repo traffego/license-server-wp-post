@@ -366,21 +366,49 @@ function call_huggingface( string $key, string $prompt, array $opts ): array {
     if ( empty( $key ) ) return [ 'success' => false, 'message' => 'Chave de API Hugging Face ausente.' ];
 
     $model = $opts['model'] ?? 'black-forest-labs/FLUX.1-schnell';
-    $url   = "https://router.huggingface.co/hf-inference/models/{$model}";
 
-    $payload = [ 'inputs' => $prompt ];
+    // Novo endpoint: router Together via HuggingFace (OpenAI-compatible, retorna JSON com URL)
+    $url     = 'https://router.huggingface.co/together/v1/images/generations';
+    $payload = [
+        'model'  => $model,
+        'prompt' => $prompt,
+        'n'      => 1,
+        'size'   => $opts['size'] ?? '1024x1024',
+    ];
 
     $res = curl_post( $url, json_encode( $payload ), [
         'Authorization: Bearer ' . $key,
-        'Content-Type: application/json'
+        'Content-Type: application/json',
     ] );
 
     if ( ! $res['success'] ) return $res;
 
-    // Hugging Face pode retornar a imagem binária diretamente. 
-    // Vamos converter o corpo binário para base64 para que o plugin possa decodificá-lo de forma segura e limpa.
-    $b64 = base64_encode( $res['body'] );
-    return [ 'success' => true, 'base64' => $b64, 'message' => '' ];
+    $data    = json_decode( $res['body'], true );
+    $img_url = $data['data'][0]['url'] ?? '';
+    $b64_raw = $data['data'][0]['b64_json'] ?? '';
+
+    // Preferir URL: baixar a imagem e converter para base64
+    if ( ! empty( $img_url ) ) {
+        $ch = curl_init( $img_url );
+        curl_setopt_array( $ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ] );
+        $img_body = curl_exec( $ch );
+        curl_close( $ch );
+
+        if ( $img_body !== false && strlen( $img_body ) > 500 ) {
+            return [ 'success' => true, 'base64' => base64_encode( $img_body ), 'message' => '' ];
+        }
+    }
+
+    // Fallback: b64_json direto
+    if ( ! empty( $b64_raw ) ) {
+        return [ 'success' => true, 'base64' => $b64_raw, 'message' => '' ];
+    }
+
+    return [ 'success' => false, 'message' => 'Imagem não retornada pelo Hugging Face.' ];
 }
 
 function call_pollinations( string $prompt, array $opts ): array {
