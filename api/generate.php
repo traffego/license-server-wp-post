@@ -249,6 +249,8 @@ function handle_image_generation( string $provider, string $key, string $prompt,
             return call_pollinations( $prompt, $opts );
         case 'poe':
             return call_poe_image( $key, $prompt, $opts );
+        case 'apiframe':
+            return call_apiframe_image( $key, $prompt, $opts );
         default:
             return [ 'success' => false, 'message' => 'Provedor de imagem desconhecido: ' . $provider ];
     }
@@ -418,6 +420,123 @@ function call_pollinations( string $prompt, array $opts ): array {
     $url    = 'https://image.pollinations.ai/prompt/' . urlencode( $prompt ) . "?width={$width}&height={$height}&model={$model}&nologo=true&private=true";
 
     return [ 'success' => true, 'url' => $url, 'message' => '' ];
+}
+
+function call_apiframe_image( string $key, string $prompt, array $opts ): array {
+    if ( empty( $key ) ) return [ 'success' => false, 'message' => 'Chave de API Apiframe.ai ausente.' ];
+
+    $model = $opts['model'] ?? 'midjourney';
+
+    // 1. Criar job de geração de imagem (suporta v2 e v1)
+    $url     = 'https://api.apiframe.ai/v2/images/generate';
+    $payload = [
+        'prompt' => $prompt,
+        'model'  => $model,
+    ];
+
+    $ch = curl_init( $url );
+    curl_setopt_array( $ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POSTFIELDS     => json_encode( $payload ),
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $key,
+            'X-API-Key: ' . $key,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_SSL_VERIFYPEER => false,
+    ] );
+
+    $body = curl_exec( $ch );
+    $code = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+    curl_close( $ch );
+
+    if ( $code !== 200 && $code !== 201 && $code !== 202 ) {
+        // Fallback v1 /v1/imagine se v2 não responder 20x
+        $ch_v1 = curl_init( 'https://api.apiframe.ai/v1/imagine' );
+        curl_setopt_array( $ch_v1, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POSTFIELDS     => json_encode( [ 'prompt' => $prompt ] ),
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $key,
+                'Content-Type: application/json',
+            ],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ] );
+        $body = curl_exec( $ch_v1 );
+        $code = curl_getinfo( $ch_v1, CURLINFO_HTTP_CODE );
+        curl_close( $ch_v1 );
+    }
+
+    $data   = json_decode( $body, true );
+    $job_id = $data['jobId'] ?? $data['task_id'] ?? $data['id'] ?? '';
+
+    // Se a imagem veio direta no primeiro response
+    $direct_url = $data['images'][0] ?? $data['image_url'] ?? $data['url'] ?? '';
+    if ( ! empty( $direct_url ) ) {
+        return [ 'success' => true, 'url' => $direct_url, 'message' => '' ];
+    }
+
+    if ( empty( $job_id ) ) {
+        $msg = $data['error']['message'] ?? $data['message'] ?? ( 'HTTP ' . $code . ': ' . substr( $body, 0, 200 ) );
+        return [ 'success' => false, 'message' => 'APIFrame: ' . $msg ];
+    }
+
+    // 2. Polling do Job ID até a imagem ficar pronta (máx 60s)
+    for ( $i = 0; $i < 30; $i++ ) {
+        sleep( 2 );
+
+        $ch_p = curl_init( 'https://api.apiframe.ai/v2/jobs/' . $job_id );
+        curl_setopt_array( $ch_p, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $key,
+                'X-API-Key: ' . $key,
+            ],
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ] );
+        $p_body = curl_exec( $ch_p );
+        $p_code = curl_getinfo( $ch_p, CURLINFO_HTTP_CODE );
+        curl_close( $ch_p );
+
+        if ( $p_code !== 200 ) {
+            $ch_p1 = curl_init( 'https://api.apiframe.ai/v1/fetch' );
+            curl_setopt_array( $ch_p1, [
+                CURLOPT_POST           => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POSTFIELDS     => json_encode( [ 'task_id' => $job_id ] ),
+                CURLOPT_HTTPHEADER     => [
+                    'Authorization: Bearer ' . $key,
+                    'Content-Type: application/json',
+                ],
+                CURLOPT_TIMEOUT        => 15,
+                CURLOPT_SSL_VERIFYPEER => false,
+            ] );
+            $p_body = curl_exec( $ch_p1 );
+            curl_close( $ch_p1 );
+        }
+
+        $p_data = json_decode( $p_body, true );
+        $status = strtoupper( $p_data['status'] ?? '' );
+
+        if ( $status === 'COMPLETED' || $status === 'SUCCESS' || $status === 'DONE' || ! empty( $p_data['images'][0] ) || ! empty( $p_data['image_url'] ) ) {
+            $img_url = $p_data['images'][0] ?? $p_data['image_url'] ?? $p_data['url'] ?? $p_data['gridUrl'] ?? '';
+            if ( ! empty( $img_url ) ) {
+                return [ 'success' => true, 'url' => $img_url, 'message' => '' ];
+            }
+        }
+
+        if ( $status === 'FAILED' || $status === 'ERROR' ) {
+            $err_msg = $p_data['error'] ?? $p_data['message'] ?? 'Falha ao processar imagem no APIFrame.';
+            return [ 'success' => false, 'message' => 'APIFrame: ' . $err_msg ];
+        }
+    }
+
+    return [ 'success' => false, 'message' => 'APIFrame: Tempo limite excedido ao aguardar geração.' ];
 }
 
 // ── Helper HTTP cURL ──────────────────────────────────────────────────────────
