@@ -440,7 +440,6 @@ function call_apiframe_image( string $key, string $prompt, array $opts ): array 
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POSTFIELDS     => json_encode( $payload ),
         CURLOPT_HTTPHEADER     => [
-            'Authorization: Bearer ' . $key,
             'X-API-Key: ' . $key,
             'Content-Type: application/json',
         ],
@@ -460,7 +459,7 @@ function call_apiframe_image( string $key, string $prompt, array $opts ): array 
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POSTFIELDS     => json_encode( [ 'prompt' => $prompt ] ),
             CURLOPT_HTTPHEADER     => [
-                'Authorization: Bearer ' . $key,
+                'X-API-Key: ' . $key,
                 'Content-Type: application/json',
             ],
             CURLOPT_TIMEOUT        => 30,
@@ -493,7 +492,6 @@ function call_apiframe_image( string $key, string $prompt, array $opts ): array 
         curl_setopt_array( $ch_p, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER     => [
-                'Authorization: Bearer ' . $key,
                 'X-API-Key: ' . $key,
             ],
             CURLOPT_TIMEOUT        => 15,
