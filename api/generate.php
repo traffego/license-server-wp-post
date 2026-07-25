@@ -246,7 +246,7 @@ function handle_image_generation( string $provider, string $key, string $prompt,
         case 'huggingface':
             return call_huggingface( $key, $prompt, $opts );
         case 'pollinations':
-            return call_pollinations( $prompt, $opts );
+            return call_pollinations( $key, $prompt, $opts );
         case 'poe':
             return call_poe_image( $key, $prompt, $opts );
         case 'apiframe':
@@ -413,11 +413,34 @@ function call_huggingface( string $key, string $prompt, array $opts ): array {
     return [ 'success' => false, 'message' => 'Imagem não retornada pelo Hugging Face.' ];
 }
 
-function call_pollinations( string $prompt, array $opts ): array {
+function call_pollinations( string $key, string $prompt, array $opts ): array {
     $width  = $opts['width'] ?? 1024;
     $height = $opts['height'] ?? 1024;
     $model  = $opts['model'] ?? 'flux';
     $url    = 'https://image.pollinations.ai/prompt/' . urlencode( $prompt ) . "?width={$width}&height={$height}&model={$model}&nologo=true&private=true";
+
+    if ( ! empty( $key ) ) {
+        $url .= '&key=' . urlencode( $key );
+
+        $ch = curl_init( $url );
+        curl_setopt_array( $ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => [ 'Authorization: Bearer ' . $key ],
+            CURLOPT_TIMEOUT        => 45,
+            CURLOPT_SSL_VERIFYPEER => false,
+        ] );
+        $body = curl_exec( $ch );
+        $code = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+        curl_close( $ch );
+
+        if ( $code === 200 && $body !== false && strlen( $body ) > 500 ) {
+            return [ 'success' => true, 'base64' => base64_encode( $body ), 'message' => '' ];
+        } elseif ( $code !== 200 && $body !== false ) {
+            $json = json_decode( $body, true );
+            $msg  = $json['error']['message'] ?? $json['error'] ?? ( 'HTTP ' . $code );
+            return [ 'success' => false, 'message' => 'Pollinations: ' . $msg ];
+        }
+    }
 
     return [ 'success' => true, 'url' => $url, 'message' => '' ];
 }
