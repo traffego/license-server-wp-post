@@ -100,6 +100,8 @@ function handle_text_generation( string $provider, string $key, string $prompt, 
             return call_anthropic_chat( $key, $prompt, $system, $opts );
         case 'deepseek':
             return call_deepseek_chat( $key, $prompt, $system, $opts );
+        case 'cloudflare':
+            return call_cloudflare_text( $key, $prompt, $system, $opts );
         default:
             return [ 'success' => false, 'message' => 'Provedor de texto desconhecido: ' . $provider ];
     }
@@ -251,6 +253,8 @@ function handle_image_generation( string $provider, string $key, string $prompt,
             return call_poe_image( $key, $prompt, $opts );
         case 'apiframe':
             return call_apiframe_image( $key, $prompt, $opts );
+        case 'cloudflare':
+            return call_cloudflare_image( $key, $prompt, $opts );
         default:
             return [ 'success' => false, 'message' => 'Provedor de imagem desconhecido: ' . $provider ];
     }
@@ -546,6 +550,89 @@ function call_apiframe_image( string $key, string $prompt, array $opts ): array 
     }
 
     return [ 'success' => false, 'message' => 'APIFrame: Tempo limite excedido ao aguardar geração.' ];
+}
+
+function call_cloudflare_text( string $key, string $prompt, string $system, array $opts ): array {
+    $parts = explode( ':', $key, 2 );
+    $account_id = trim( $parts[0] ?? '' );
+    $api_token  = trim( $parts[1] ?? '' );
+
+    if ( empty( $account_id ) || empty( $api_token ) ) {
+        return [ 'success' => false, 'message' => 'Credenciais Cloudflare (Account ID ou API Token) ausentes.' ];
+    }
+
+    $model   = $opts['model'] ?? '@cf/meta/llama-3.3-70b-instruct-fp8';
+    $max_tok = (int) ( $opts['max_tokens'] ?? 2500 );
+
+    $url = "https://api.cloudflare.com/client/v4/accounts/{$account_id}/ai/run/{$model}";
+
+    $payload = [
+        'messages' => [
+            [ 'role' => 'system', 'content' => $system ],
+            [ 'role' => 'user',   'content' => $prompt ],
+        ],
+        'max_tokens' => $max_tok,
+    ];
+
+    $res = curl_post( $url, json_encode( $payload ), [
+        'Authorization: Bearer ' . $api_token,
+        'Content-Type: application/json',
+    ] );
+
+    if ( ! $res['success'] ) return $res;
+
+    $data = json_decode( $res['body'], true );
+    $text = $data['result']['response'] ?? '';
+
+    if ( empty( $text ) && ! empty( $data['result']['description'] ) ) {
+        $text = $data['result']['description'];
+    }
+
+    if ( empty( $text ) ) {
+        $err = $data['errors'][0]['message'] ?? 'Resposta vazia do Cloudflare Workers AI.';
+        return [ 'success' => false, 'message' => 'Cloudflare: ' . $err ];
+    }
+
+    return [ 'success' => true, 'text' => trim( $text ), 'message' => '' ];
+}
+
+function call_cloudflare_image( string $key, string $prompt, array $opts ): array {
+    $parts = explode( ':', $key, 2 );
+    $account_id = trim( $parts[0] ?? '' );
+    $api_token  = trim( $parts[1] ?? '' );
+
+    if ( empty( $account_id ) || empty( $api_token ) ) {
+        return [ 'success' => false, 'message' => 'Credenciais Cloudflare (Account ID ou API Token) ausentes.' ];
+    }
+
+    $model = $opts['model'] ?? '@cf/black-forest-labs/flux-1-schnell';
+    $url   = "https://api.cloudflare.com/client/v4/accounts/{$account_id}/ai/run/{$model}";
+
+    $payload = [
+        'prompt' => $prompt,
+        'steps'  => 6,
+    ];
+
+    $res = curl_post( $url, json_encode( $payload ), [
+        'Authorization: Bearer ' . $api_token,
+        'Content-Type: application/json',
+    ] );
+
+    if ( ! $res['success'] ) return $res;
+
+    $data = json_decode( $res['body'], true );
+    $b64  = $data['result']['image'] ?? '';
+
+    if ( empty( $b64 ) && ! empty( $res['body'] ) && strlen( $res['body'] ) > 500 && empty( $data['errors'] ) ) {
+        $b64 = base64_encode( $res['body'] );
+    }
+
+    if ( empty( $b64 ) ) {
+        $err = $data['errors'][0]['message'] ?? 'Falha ao gerar imagem no Cloudflare Workers AI.';
+        return [ 'success' => false, 'message' => 'Cloudflare: ' . $err ];
+    }
+
+    return [ 'success' => true, 'base64' => $b64, 'message' => '' ];
 }
 
 // ── Helper HTTP cURL ──────────────────────────────────────────────────────────
