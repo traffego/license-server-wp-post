@@ -413,8 +413,9 @@ function call_huggingface( string $key, string $prompt, array $opts ): array {
 
 function call_pollinations( string $prompt, array $opts ): array {
     $width  = $opts['width'] ?? 1024;
-    $height = $opts['height'] ?? 576;
-    $url    = 'https://image.pollinations.ai/prompt/' . urlencode( $prompt ) . "?width={$width}&height={$height}&nologo=true&private=true";
+    $height = $opts['height'] ?? 1024;
+    $model  = $opts['model'] ?? 'flux';
+    $url    = 'https://image.pollinations.ai/prompt/' . urlencode( $prompt ) . "?width={$width}&height={$height}&model={$model}&nologo=true&private=true";
 
     return [ 'success' => true, 'url' => $url, 'message' => '' ];
 }
