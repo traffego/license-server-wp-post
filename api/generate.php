@@ -427,7 +427,7 @@ function call_apiframe_image( string $key, string $prompt, array $opts ): array 
 
     $model = $opts['model'] ?? 'midjourney';
 
-    // 1. Criar job de geração de imagem (suporta v2 e v1)
+    // 1. Criar job de geração de imagem
     $url     = 'https://api.apiframe.ai/v2/images/generate';
     $payload = [
         'prompt' => $prompt,
@@ -451,26 +451,19 @@ function call_apiframe_image( string $key, string $prompt, array $opts ): array 
     $code = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
     curl_close( $ch );
 
+    $data = json_decode( $body, true );
+
     if ( $code !== 200 && $code !== 201 && $code !== 202 ) {
-        // Fallback v1 /v1/imagine se v2 não responder 20x
-        $ch_v1 = curl_init( 'https://api.apiframe.ai/v1/imagine' );
-        curl_setopt_array( $ch_v1, [
-            CURLOPT_POST           => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POSTFIELDS     => json_encode( [ 'prompt' => $prompt ] ),
-            CURLOPT_HTTPHEADER     => [
-                'X-API-Key: ' . $key,
-                'Content-Type: application/json',
-            ],
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_SSL_VERIFYPEER => false,
-        ] );
-        $body = curl_exec( $ch_v1 );
-        $code = curl_getinfo( $ch_v1, CURLINFO_HTTP_CODE );
-        curl_close( $ch_v1 );
+        $err = $data['error']['message'] ?? $data['error'] ?? ( 'Erro HTTP ' . $code );
+        if ( is_array( $err ) ) $err = json_encode( $err );
+        if ( $code === 402 ) {
+            $avail = $data['creditsAvailable'] ?? 0;
+            $req   = $data['creditsRequired'] ?? 0;
+            return [ 'success' => false, 'message' => "APIFrame: Créditos insuficientes na sua conta APIFrame.ai (Disponível: {$avail}, Necessário: {$req})." ];
+        }
+        return [ 'success' => false, 'message' => 'APIFrame: ' . $err ];
     }
 
-    $data   = json_decode( $body, true );
     $job_id = $data['jobId'] ?? $data['task_id'] ?? $data['id'] ?? '';
 
     // Se a imagem veio direta no primeiro response
