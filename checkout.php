@@ -291,7 +291,14 @@ if ( ! empty( $param_key ) ) {
     $renewal_license = $stmt->fetch();
 }
 
+// ── Parâmetros pré-preenchidos vindos da Landing Page ────────────────────────
+$prefill_name  = htmlspecialchars( trim( $_GET['name']    ?? '' ), ENT_QUOTES, 'UTF-8' );
+$prefill_email = filter_var( trim( $_GET['email']   ?? '' ), FILTER_SANITIZE_EMAIL );
+$prefill_cpf   = preg_replace( '/\D/', '', $_GET['cpfCnpj'] ?? '' );
+$prefill_phone = preg_replace( '/\D/', '', $_GET['phone']   ?? '' );
+
 $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price'], 2, ',', '.' ) : '49,90';
+
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -514,22 +521,22 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
 
                 <div class="form-group">
                     <label for="name">Nome Completo</label>
-                    <input type="text" id="name" name="name" required placeholder="Seu nome completo">
+                    <input type="text" id="name" name="name" required placeholder="Seu nome completo" value="<?php echo $prefill_name; ?>">
                 </div>
 
                 <div class="form-group">
                     <label for="email">E-mail de Recebimento da Licença</label>
-                    <input type="email" id="email" name="email" required value="<?php echo esc_html( $renewal_license['client_email'] ?? '' ); ?>" placeholder="seu@email.com" <?php echo $renewal_license ? 'readonly style="background: rgba(124, 58, 237, 0.1); color: #c4b5fd;"' : ''; ?>>
+                    <input type="email" id="email" name="email" required value="<?php echo $renewal_license ? esc_html( $renewal_license['client_email'] ) : $prefill_email; ?>" placeholder="seu@email.com" <?php echo $renewal_license ? 'readonly style="background: rgba(124, 58, 237, 0.1); color: #c4b5fd;"' : ''; ?>>
                 </div>
 
                 <div class="form-group">
                     <label for="cpfCnpj">CPF ou CNPJ</label>
-                    <input type="text" id="cpfCnpj" name="cpfCnpj" required placeholder="000.000.000-00">
+                    <input type="text" id="cpfCnpj" name="cpfCnpj" required placeholder="000.000.000-00" value="<?php echo $prefill_cpf; ?>">
                 </div>
 
                 <div class="form-group">
                     <label for="phone">Telefone / WhatsApp</label>
-                    <input type="text" id="phone" name="phone" placeholder="(00) 90000-0000">
+                    <input type="text" id="phone" name="phone" placeholder="(00) 90000-0000" value="<?php echo $prefill_phone; ?>">
                 </div>
 
                 <label>Forma de Pagamento</label>
