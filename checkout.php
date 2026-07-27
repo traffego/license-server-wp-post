@@ -292,10 +292,12 @@ if ( ! empty( $param_key ) ) {
 }
 
 // ── Parâmetros pré-preenchidos vindos da Landing Page ────────────────────────
-$prefill_name  = htmlspecialchars( trim( $_GET['name']    ?? '' ), ENT_QUOTES, 'UTF-8' );
-$prefill_email = filter_var( trim( $_GET['email']   ?? '' ), FILTER_SANITIZE_EMAIL );
-$prefill_cpf   = preg_replace( '/\D/', '', $_GET['cpfCnpj'] ?? '' );
-$prefill_phone = preg_replace( '/\D/', '', $_GET['phone']   ?? '' );
+$prefill_name    = htmlspecialchars( trim( $_GET['name']    ?? '' ), ENT_QUOTES, 'UTF-8' );
+$prefill_email   = filter_var( trim( $_GET['email']   ?? '' ), FILTER_SANITIZE_EMAIL );
+$prefill_cpf     = preg_replace( '/\D/', '', $_GET['cpfCnpj'] ?? '' );
+$prefill_phone   = preg_replace( '/\D/', '', $_GET['phone']   ?? '' );
+$prefill_plan_id = (int) ( $_GET['plan_id'] ?? 0 );
+
 
 $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price'], 2, ',', '.' ) : '49,90';
 
@@ -504,8 +506,15 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
                 <?php if ( ! empty( $plans ) ): ?>
                     <label>Selecione o Plano</label>
                     <div class="plans-grid">
-                        <?php foreach ( $plans as $index => $p ): ?>
-                            <div class="plan-card <?php echo $index === 0 ? 'selected' : ''; ?>" 
+                        <?php
+                        // Se veio plan_id da LP, valida que existe entre os planos
+                        $valid_plan_ids = array_column( $plans, 'id' );
+                        $default_plan_id = in_array( $prefill_plan_id, $valid_plan_ids )
+                            ? $prefill_plan_id
+                            : ( $plans[0]['id'] ?? 0 );
+                        ?>
+                        <?php foreach ( $plans as $p ): ?>
+                            <div class="plan-card <?php echo (int) $p['id'] === (int) $default_plan_id ? 'selected' : ''; ?>"
                                  onclick="selectPlanCard(this, <?php echo (int) $p['id']; ?>, '<?php echo number_format( (float) $p['price'], 2, '.', '' ); ?>')">
                                 <div class="plan-badge"><?php echo (int) $p['duration_days']; ?> dias</div>
                                 <div class="plan-name"><?php echo esc_html( $p['name'] ); ?></div>
@@ -516,8 +525,9 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
                             </div>
                         <?php endforeach; ?>
                     </div>
-                    <input type="hidden" id="plan_id" name="plan_id" value="<?php echo $plans[0]['id'] ?? 0; ?>">
+                    <input type="hidden" id="plan_id" name="plan_id" value="<?php echo $default_plan_id; ?>">
                 <?php endif; ?>
+
 
                 <div class="form-group">
                     <label for="name">Nome Completo</label>
