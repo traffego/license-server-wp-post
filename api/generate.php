@@ -40,14 +40,21 @@ if ( empty( $license_key ) || empty( $domain ) || empty( $provider ) ) {
 try {
     $db = get_db_connection();
     
-    // 1. Validar licença no banco (busca insensível a maiúsculas/minúsculas)
-    $stmt = $db->prepare( "SELECT * FROM licenses WHERE UPPER(license_key) = UPPER(?) LIMIT 1" );
-    $stmt->execute( [ $license_key ] );
+    // 1. Validar licença no banco (busca insensível a maiúsculas, minúsculas, traços e espaços)
+    $clean_key = preg_replace( '/[^A-Za-z0-9]/', '', $license_key );
+    $stmt = $db->prepare( "SELECT * FROM licenses WHERE UPPER(REPLACE(REPLACE(TRIM(license_key), '-', ''), ' ', '')) = UPPER(?) LIMIT 1" );
+    $stmt->execute( [ $clean_key ] );
     $license = $stmt->fetch();
-    
+
+    if ( ! $license ) {
+        $stmt = $db->prepare( "SELECT * FROM licenses WHERE UPPER(TRIM(license_key)) = UPPER(TRIM(?)) LIMIT 1" );
+        $stmt->execute( [ $license_key ] );
+        $license = $stmt->fetch();
+    }
+
     if ( ! $license ) {
         http_response_code( 404 );
-        $preview = substr( $license_key, 0, 6 ) . '…';
+        $preview = substr( $license_key, 0, 10 ) . '…';
         echo json_encode( [ 'success' => false, 'message' => 'Chave de licença não encontrada no banco. Recebido: ' . $preview . ' Dom: ' . $domain ] );
         exit;
     }
