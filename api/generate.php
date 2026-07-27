@@ -39,21 +39,6 @@ if ( empty( $license_key ) || empty( $domain ) || empty( $provider ) ) {
 
 try {
     $db = get_db_connection();
-    
-    // Se for chave de teste (WPAIP-TEST...), garante inserção e ativação automática no banco do servidor
-    if ( strpos( strtoupper( $license_key ), 'WPAIP-TEST' ) === 0 ) {
-        $stmt_ins = $db->prepare( "INSERT IGNORE INTO licenses (license_key, client_email, status) VALUES (?, 'teste@postfacil.com.br', 'ACTIVE')" );
-        $stmt_ins->execute( [ $license_key ] );
-
-        $stmt = $db->prepare( "SELECT * FROM licenses WHERE UPPER(TRIM(license_key)) = UPPER(TRIM(?)) LIMIT 1" );
-        $stmt->execute( [ $license_key ] );
-        $license = $stmt->fetch();
-
-        if ( $license ) {
-            $stmt_act = $db->prepare( "INSERT IGNORE INTO activations (license_id, domain) VALUES (?, ?)" );
-            $stmt_act->execute( [ $license['id'], $domain ] );
-        }
-    }
 
     // 1. Validar licença no banco (busca insensível a maiúsculas, minúsculas, traços e espaços)
     $clean_key = preg_replace( '/[^A-Za-z0-9]/', '', $license_key );
