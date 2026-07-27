@@ -86,6 +86,13 @@ if ( ! $result['found'] ) {
     ];
 }
 
+// Mostra domínios ativados para esta chave
+if ( $result['found'] && isset( $result['license']['id'] ) ) {
+    $stmt = $db->prepare( "SELECT * FROM activations WHERE license_id = ?" );
+    $stmt->execute( [ $result['license']['id'] ] );
+    $result['activations'] = $stmt->fetchAll();
+}
+
 // Lista as primeiras 5 licenças do banco para comparar manualmente
 $stmt = $db->query( "SELECT id, license_key, status FROM licenses ORDER BY id DESC LIMIT 5" );
 $result['latest_licenses_in_db'] = $stmt->fetchAll();
