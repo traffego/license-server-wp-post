@@ -809,7 +809,8 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
             btn.innerText = isRenewal ? 'Renovar Licença' : 'Pagar';
 
             if (!data.success) {
-                alertError.innerText = data.message;
+                const errMsg = typeof data.message === 'object' ? JSON.stringify(data.message) : (data.message || 'Erro ao processar requisição.');
+                alertError.innerText = errMsg;
                 alertError.style.display = 'block';
                 return;
             }

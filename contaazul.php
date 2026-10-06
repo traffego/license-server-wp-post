@@ -260,8 +260,27 @@ class ContaAzulClient {
             return [ 'success' => true, 'customer_id' => $create['data']['id'] ];
         }
 
-        $err = $create['data']['message'] ?? $create['data']['error'] ?? 'Erro ao cadastrar contato no Conta Azul.';
-        return [ 'success' => false, 'message' => $err ];
+        // Tentar endpoint alternativo /v1/pessoas
+        $payload_pessoas = [
+            'nome'        => $name,
+            'email'       => $email,
+            'cpf_cnpj'    => $cpfCnpj,
+            'telefone'    => $phone,
+            'tipo_pessoa' => $is_cnpj ? 'JURIDICA' : 'FISICA',
+        ];
+        $create_pessoas = self::api_request( '/v1/pessoas', 'POST', $payload_pessoas );
+        if ( in_array( $create_pessoas['code'], [ 200, 201 ] ) && ! empty( $create_pessoas['data']['id'] ) ) {
+            return [ 'success' => true, 'customer_id' => $create_pessoas['data']['id'] ];
+        }
+
+        $err = self::extract_error_message( $create, 'Erro ao cadastrar contato no Conta Azul.' );
+        if ( $create_pessoas['code'] !== 404 && ! empty( $create_pessoas['data'] ) ) {
+            $err_alt = self::extract_error_message( $create_pessoas, '' );
+            if ( $err_alt ) {
+                $err .= ' | ' . $err_alt;
+            }
+        }
+        return [ 'success' => false, 'message' => trim( $err, ' | ' ) ];
     }
 
     /**
@@ -317,8 +336,61 @@ class ContaAzulClient {
             ];
         }
 
-        $msg = $res['data']['message'] ?? $fallback['data']['message'] ?? 'Erro ao gerar cobrança no Conta Azul.';
-        return [ 'success' => false, 'message' => $msg ];
+        $msg = self::extract_error_message( $res, 'Erro ao gerar cobrança no Conta Azul.' );
+        if ( ! empty( $fallback['data'] ) && $fallback['code'] !== 404 ) {
+            $msg_alt = self::extract_error_message( $fallback, '' );
+            if ( $msg_alt ) {
+                $msg .= ' | ' . $msg_alt;
+            }
+        }
+        return [ 'success' => false, 'message' => trim( $msg, ' | ' ) ];
+    }
+
+    /**
+     * Extrai mensagem de erro legível de qualquer resposta da API Conta Azul.
+     */
+    public static function extract_error_message( array $res, string $default = 'Erro desconhecido' ): string {
+        $data = $res['data'] ?? [];
+        if ( is_string( $data ) && ! empty( $data ) ) {
+            return $data;
+        }
+        if ( ! empty( $data['message'] ) && is_string( $data['message'] ) ) {
+            return $data['message'];
+        }
+        if ( ! empty( $data['error_description'] ) && is_string( $data['error_description'] ) ) {
+            return $data['error_description'];
+        }
+        if ( ! empty( $data['error'] ) ) {
+            if ( is_string( $data['error'] ) ) {
+                return $data['error'];
+            }
+            if ( is_array( $data['error'] ) ) {
+                if ( ! empty( $data['error']['message'] ) ) {
+                    return (string) $data['error']['message'];
+                }
+                return json_encode( $data['error'], JSON_UNESCAPED_UNICODE );
+            }
+        }
+        if ( ! empty( $data['errors'] ) && is_array( $data['errors'] ) ) {
+            $parts = [];
+            foreach ( $data['errors'] as $item ) {
+                if ( is_string( $item ) ) {
+                    $parts[] = $item;
+                } elseif ( is_array( $item ) ) {
+                    $field = $item['field'] ?? $item['campo'] ?? '';
+                    $m     = $item['message'] ?? $item['mensagem'] ?? $item['description'] ?? json_encode( $item, JSON_UNESCAPED_UNICODE );
+                    $parts[] = $field ? "{$field}: {$m}" : $m;
+                }
+            }
+            if ( ! empty( $parts ) ) {
+                return implode( '; ', $parts );
+            }
+        }
+        if ( ! empty( $data ) && is_array( $data ) ) {
+            return json_encode( $data, JSON_UNESCAPED_UNICODE );
+        }
+        $code = $res['code'] ?? 0;
+        return $default . ( $code ? " (HTTP {$code})" : '' );
     }
 
     /**
