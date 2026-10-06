@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/contaazul.php';
 
 // Definir esc_html caso não exista (função do WordPress não disponível em contexto standalone)
 if ( ! function_exists( 'esc_html' ) ) {
@@ -14,17 +15,13 @@ if ( ! function_exists( 'esc_html' ) ) {
     }
 }
 
-$api_key = get_setting( 'asaas_api_key', '' );
-$env     = get_setting( 'asaas_environment', 'sandbox' );
+$active_gateway = get_setting( 'active_gateway', 'asaas' );
+$api_key        = get_setting( 'asaas_api_key', '' );
+$env            = get_setting( 'asaas_environment', 'sandbox' );
 
 // Processar Requisição AJAX / POST
 if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POST['action'] === 'process_checkout' ) {
     header( 'Content-Type: application/json; charset=utf-8' );
-
-    if ( empty( $api_key ) ) {
-        echo json_encode( [ 'success' => false, 'message' => 'Chave de API do Asaas não configurada no servidor.' ] );
-        exit;
-    }
 
     $name           = trim( $_POST['name'] ?? '' );
     $email          = filter_var( trim( $_POST['email'] ?? '' ), FILTER_VALIDATE_EMAIL );
@@ -51,6 +48,82 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
             $amount    = (float) $selected_plan['price'];
             $plan_desc = 'Licença WP AI Publisher - ' . $selected_plan['name'];
         }
+    }
+
+    // ── Fluxo Gateway: Conta Azul ─────────────────────────────────────────────
+    if ( $active_gateway === 'contaazul' ) {
+        $token = ContaAzulClient::get_valid_access_token();
+        if ( empty( $token ) ) {
+            echo json_encode( [ 'success' => false, 'message' => 'Conta Azul não conectado. Por favor, autorize no painel de controle.' ] );
+            exit;
+        }
+
+        $cust_res = ContaAzulClient::get_or_create_customer( [
+            'name'    => $name,
+            'email'   => $email,
+            'cpfCnpj' => $cpfCnpj,
+            'phone'   => $phone,
+        ] );
+
+        if ( ! $cust_res['success'] ) {
+            echo json_encode( [ 'success' => false, 'message' => $cust_res['message'] ] );
+            exit;
+        }
+
+        $charge_res = ContaAzulClient::create_charge( [
+            'customer_id' => $cust_res['customer_id'],
+            'amount'      => $amount,
+            'description' => $plan_desc . ' - ' . $email,
+        ] );
+
+        if ( ! $charge_res['success'] ) {
+            echo json_encode( [ 'success' => false, 'message' => $charge_res['message'] ] );
+            exit;
+        }
+
+        $charge_id  = (string) $charge_res['charge_id'];
+        $payment_id = 'CA-' . $charge_id;
+        $final_license_key = '';
+
+        if ( ! empty( $renewal_key ) ) {
+            $stmt_check = $db->prepare( "SELECT * FROM licenses WHERE license_key = ? LIMIT 1" );
+            $stmt_check->execute( [ $renewal_key ] );
+            $existing_lic = $stmt_check->fetch();
+            if ( $existing_lic ) {
+                $final_license_key = $existing_lic['license_key'];
+                $stmt = $db->prepare( "UPDATE licenses SET status = 'PENDING', gateway = 'contaazul', gateway_reference_id = ?, asaas_subscription_id = ? WHERE license_key = ?" );
+                $stmt->execute( [ $charge_id, $payment_id, $final_license_key ] );
+            }
+        }
+
+        if ( empty( $final_license_key ) ) {
+            $final_license_key = 'WPAIP-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) );
+            $stmt = $db->prepare( "INSERT INTO licenses (license_key, client_email, status, gateway, gateway_reference_id, asaas_customer_id, asaas_subscription_id) VALUES (?, ?, 'PENDING', 'contaazul', ?, ?, ?)" );
+            $stmt->execute( [ $final_license_key, $email, $charge_id, $cust_res['customer_id'], $payment_id ] );
+        }
+
+        echo json_encode( [
+            'success'        => true,
+            'gateway'        => 'contaazul',
+            'license_key'    => null,
+            'status'         => 'PENDING',
+            'payment_method' => $payment_method,
+            'payment_id'     => $payment_id,
+            'is_renewal'     => ! empty( $renewal_key ),
+            'payment_link'   => $charge_res['link'] ?? '',
+            'pix'            => ! empty( $charge_res['pix_code'] ) ? [
+                'payload'      => $charge_res['pix_code'],
+                'encodedImage' => $charge_res['pix_qr'] ?? '',
+            ] : null,
+            'message'        => 'Cobrança Conta Azul gerada. Aguardando confirmação do pagamento...',
+        ] );
+        exit;
+    }
+
+    // ── Fluxo Gateway: Asaas ──────────────────────────────────────────────────
+    if ( empty( $api_key ) ) {
+        echo json_encode( [ 'success' => false, 'message' => 'Chave de API do Asaas não configurada no servidor.' ] );
+        exit;
     }
 
     // Helper cURL para API Asaas
@@ -213,7 +286,39 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 
     $payment_id_check = trim( $_POST['payment_id'] ?? '' );
 
-    if ( empty( $payment_id_check ) || empty( $api_key ) ) {
+    if ( empty( $payment_id_check ) ) {
+        echo json_encode( [ 'success' => false, 'status' => 'UNKNOWN' ] );
+        exit;
+    }
+
+    // Se for pagamento gerado pelo Conta Azul (identificador CA-...)
+    if ( str_starts_with( $payment_id_check, 'CA-' ) ) {
+        $ca_id     = substr( $payment_id_check, 3 );
+        $ca_status = ContaAzulClient::check_charge_status( $ca_id );
+        $confirmed = ( $ca_status === 'PAID' );
+        $license_key_output = null;
+
+        if ( $confirmed ) {
+            $db   = get_db_connection();
+            $stmt = $db->prepare( "UPDATE licenses SET status = 'ACTIVE' WHERE (gateway_reference_id = ? OR asaas_subscription_id = ?) AND status != 'ACTIVE'" );
+            $stmt->execute( [ $ca_id, $payment_id_check ] );
+
+            $stmt2 = $db->prepare( "SELECT license_key FROM licenses WHERE (gateway_reference_id = ? OR asaas_subscription_id = ?) LIMIT 1" );
+            $stmt2->execute( [ $ca_id, $payment_id_check ] );
+            $lic  = $stmt2->fetch();
+            $license_key_output = $lic ? $lic['license_key'] : null;
+        }
+
+        echo json_encode( [
+            'success'     => true,
+            'confirmed'   => $confirmed,
+            'status'      => $ca_status,
+            'license_key' => $license_key_output,
+        ] );
+        exit;
+    }
+
+    if ( empty( $api_key ) ) {
         echo json_encode( [ 'success' => false, 'status' => 'UNKNOWN' ] );
         exit;
     }
@@ -726,6 +831,21 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
                     document.getElementById('pix-image').src = 'data:image/png;base64,' + data.pix.encodedImage;
                 }
                 document.getElementById('pix-payload').value = data.pix.payload;
+                startPolling(data.payment_id);
+            } else if (data.payment_link) {
+                // Link de Pagamento (Conta Azul ou gateway externo)
+                document.getElementById('pix-pending-area').style.display = 'block';
+                document.getElementById('pix-image').style.display = 'none';
+                document.getElementById('pix-payload').style.display = 'none';
+                document.getElementById('pix-pending-area').innerHTML = `
+                    <h2 style="font-size: 20px; color: #a78bfa; margin-bottom: 6px;">Cobrança gerada com sucesso!</h2>
+                    <p style="font-size: 13px; color: var(--text-sub); margin-bottom: 16px;">Clique no botão abaixo para concluir o pagamento via Conta Azul. Esta tela atualizará automaticamente após a compensação.</p>
+                    <a href="${data.payment_link}" target="_blank" class="btn-submit" style="display:inline-block; text-align:center; text-decoration:none; margin-bottom:12px; padding:12px 20px;">🔗 Pagar via Conta Azul</a>
+                    <div id="pix-status-msg" style="margin-top: 18px; font-size: 13px; color: var(--text-sub); display:flex; align-items:center; justify-content:center; gap:8px;">
+                        <span id="pix-spinner" style="display:inline-block; width:14px; height:14px; border:2px solid #7c3aed; border-top-color:transparent; border-radius:50%; animation: spin 0.8s linear infinite;"></span>
+                        Aguardando confirmação do pagamento...
+                    </div>
+                `;
                 startPolling(data.payment_id);
             }
         })

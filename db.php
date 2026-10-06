@@ -38,12 +38,22 @@ try {
             `license_key` VARCHAR(255) UNIQUE NOT NULL,
             `client_email` VARCHAR(255) NOT NULL,
             `status` VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+            `gateway` VARCHAR(50) NOT NULL DEFAULT 'asaas',
+            `gateway_reference_id` VARCHAR(150) DEFAULT NULL,
             `asaas_customer_id` VARCHAR(100) DEFAULT NULL,
             `asaas_subscription_id` VARCHAR(100) DEFAULT NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB;
     " );
+
+    // Migração segura para tabelas já existentes
+    try {
+        $pdo->exec( "ALTER TABLE `licenses` ADD COLUMN `gateway` VARCHAR(50) NOT NULL DEFAULT 'asaas' AFTER `status`;" );
+    } catch ( Exception $e ) {}
+    try {
+        $pdo->exec( "ALTER TABLE `licenses` ADD COLUMN `gateway_reference_id` VARCHAR(150) DEFAULT NULL AFTER `gateway`;" );
+    } catch ( Exception $e ) {}
     
     // 3. Criar tabela 'activations' se não existir
     $pdo->exec( "
@@ -89,9 +99,16 @@ try {
 
     // Inicializar configurações padrões se vazias
     $defaults = [
-        'asaas_api_key'      => '',
-        'asaas_environment'  => 'sandbox',
-        'asaas_payment_link' => '',
+        'active_gateway'          => 'asaas',
+        'asaas_api_key'           => '',
+        'asaas_environment'       => 'sandbox',
+        'asaas_payment_link'      => '',
+        'contaazul_client_id'     => '',
+        'contaazul_client_secret' => '',
+        'contaazul_redirect_uri'  => '',
+        'contaazul_access_token'  => '',
+        'contaazul_refresh_token' => '',
+        'contaazul_token_expires' => '0',
     ];
     foreach ( $defaults as $key => $val ) {
         $stmt = $pdo->prepare( "INSERT IGNORE INTO settings (key_name, key_value) VALUES (?, ?)" );

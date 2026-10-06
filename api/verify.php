@@ -53,6 +53,20 @@ try {
     
     // 2. Verificar status da licença
     if ( $license['status'] !== 'ACTIVE' ) {
+        // Se for licença gerada pela Conta Azul pendente, checa em tempo real
+        $ca_ref = $license['gateway_reference_id'] ?? $license['asaas_subscription_id'] ?? '';
+        $ca_ref = preg_replace( '/^CA-/', '', $ca_ref );
+        if ( ( ( $license['gateway'] ?? '' ) === 'contaazul' || str_starts_with( $license['asaas_subscription_id'] ?? '', 'CA-' ) ) && ! empty( $ca_ref ) ) {
+            require_once __DIR__ . '/../contaazul.php';
+            $ca_status = ContaAzulClient::check_charge_status( $ca_ref );
+            if ( $ca_status === 'PAID' ) {
+                $db->prepare( "UPDATE licenses SET status = 'ACTIVE' WHERE id = ?" )->execute( [ $license['id'] ] );
+                $license['status'] = 'ACTIVE';
+            }
+        }
+    }
+
+    if ( $license['status'] !== 'ACTIVE' ) {
         http_response_code( 403 );
         echo json_encode( [ 'success' => false, 'message' => 'Licença inativa. Status: ' . $license['status'] ] );
         exit;

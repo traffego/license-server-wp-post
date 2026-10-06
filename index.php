@@ -7,6 +7,7 @@
 session_start();
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/contaazul.php';
 
 // ── Autenticação Simples ──────────────────────────────────────────────────────
 $authenticated = isset( $_SESSION['logged_in'] ) && $_SESSION['logged_in'] === true;
@@ -293,6 +294,12 @@ if ( isset( $_GET['edit_plan'] ) ) {
 }
 
 // ── Handlers de Configurações ─────────────────────────────────────────────────
+if ( isset( $_POST['save_active_gateway'] ) ) {
+    $active_gw = in_array( $_POST['active_gateway'] ?? '', [ 'asaas', 'contaazul' ] ) ? $_POST['active_gateway'] : 'asaas';
+    set_setting( 'active_gateway', $active_gw );
+    $message = "Gateway de pagamento padrão alterado para: <strong>" . ( $active_gw === 'contaazul' ? 'Conta Azul' : 'Asaas' ) . "</strong>";
+}
+
 if ( isset( $_POST['save_asaas_settings'] ) ) {
     $api_key  = trim( $_POST['asaas_api_key'] ?? '' );
     $env      = trim( $_POST['asaas_environment'] ?? 'sandbox' );
@@ -306,6 +313,35 @@ if ( isset( $_POST['save_asaas_settings'] ) ) {
     } catch ( Exception $e ) {
         $error = "Erro ao salvar configurações: " . $e->getMessage();
     }
+}
+
+if ( isset( $_POST['save_contaazul_settings'] ) ) {
+    $ca_id     = trim( $_POST['contaazul_client_id'] ?? '' );
+    $ca_secret = trim( $_POST['contaazul_client_secret'] ?? '' );
+    $ca_redir  = trim( $_POST['contaazul_redirect_uri'] ?? '' );
+    
+    try {
+        set_setting( 'contaazul_client_id', $ca_id );
+        set_setting( 'contaazul_client_secret', $ca_secret );
+        set_setting( 'contaazul_redirect_uri', $ca_redir );
+        $message = "Configurações da Conta Azul salvas com sucesso.";
+    } catch ( Exception $e ) {
+        $error = "Erro ao salvar Conta Azul: " . $e->getMessage();
+    }
+}
+
+if ( isset( $_GET['disconnect_contaazul'] ) ) {
+    set_setting( 'contaazul_access_token', '' );
+    set_setting( 'contaazul_refresh_token', '' );
+    set_setting( 'contaazul_token_expires', '0' );
+    $message = "Conta Azul desconectada com sucesso.";
+}
+
+if ( isset( $_GET['ca_success'] ) ) {
+    $message = "Conta Azul conectada com sucesso via OAuth 2.0!";
+}
+if ( isset( $_GET['ca_error'] ) ) {
+    $error = "Erro na conexão Conta Azul: " . htmlspecialchars( $_GET['ca_error'] );
 }
 
 // ── Dados para Renderização das Telas ─────────────────────────────────────────
@@ -353,6 +389,15 @@ if ( ! empty( $db_api_key ) ) {
         $asaas_class = 'status-error';
     }
 }
+
+// Testar Conexão Conta Azul
+$active_gateway   = get_setting( 'active_gateway', 'asaas' );
+$ca_client_id     = get_setting( 'contaazul_client_id', '' );
+$ca_token         = get_setting( 'contaazul_access_token', '' );
+$ca_expires       = (int) get_setting( 'contaazul_token_expires', '0' );
+$ca_is_connected  = ! empty( $ca_token ) && $ca_expires > time();
+$ca_status        = $ca_is_connected ? 'Conectado (Válido até ' . date( 'd/m H:i', $ca_expires ) . ')' : ( ! empty( $ca_client_id ) ? 'Pronto para Login OAuth' : 'Não configurado' );
+$ca_class         = $ca_is_connected ? 'status-active' : 'status-inactive';
 
 function selected( $val1, $val2, $echo = true ) {
     $result = $val1 === $val2 ? 'selected="selected"' : '';
@@ -642,15 +687,39 @@ function esc_html( $str ) {
             </div>
 
         <?php elseif ( $view === 'settings' ): ?>
-            <!-- ── PÁGINA 3: CONFIGURAÇÕES ASAAS ──────────────────────────────── -->
+            <!-- ── PÁGINA 3: CONFIGURAÇÕES DE GATEWAY & PAGAMENTO ─────────────── -->
             <div class="page-title">
                 <i data-lucide="sliders" style="color: var(--accent);"></i>
-                Configurações do Asaas & Gateway
+                Configurações de Gateways de Pagamento
+            </div>
+
+            <!-- Card: Escolha do Gateway Ativo -->
+            <div class="card" style="margin-bottom: 24px; border-left: 4px solid var(--accent);">
+                <div class="card-header">
+                    <h2>
+                        <i data-lucide="credit-card" style="color: var(--accent);"></i>
+                        Gateway de Pagamento Ativo no Checkout
+                    </h2>
+                </div>
+                <form action="index.php?view=settings" method="POST" style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 15px;">
+                        <input type="radio" name="active_gateway" value="asaas" <?php echo $active_gateway === 'asaas' ? 'checked' : ''; ?> style="width: auto;">
+                        <strong>Asaas</strong> (PIX & Cartão Transparente + Webhooks)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 15px;">
+                        <input type="radio" name="active_gateway" value="contaazul" <?php echo $active_gateway === 'contaazul' ? 'checked' : ''; ?> style="width: auto;">
+                        <strong>Conta Azul</strong> (OAuth 2.0 + Cobrança/ERP)
+                    </label>
+                    <button type="submit" name="save_active_gateway" class="btn btn-primary" style="margin-left: auto;">
+                        <i data-lucide="check"></i>
+                        Definir Gateway Ativo
+                    </button>
+                </form>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-                <!-- Card: Formulário de Conexão -->
-                <div class="card">
+                <!-- Card: Formulário Asaas -->
+                <div class="card" style="<?php echo $active_gateway === 'asaas' ? 'border: 1px solid rgba(124, 58, 237, 0.4);' : ''; ?>">
                     <div class="card-header">
                         <h2>
                             <i data-lucide="link-2" style="color: var(--accent);"></i>
@@ -680,19 +749,73 @@ function esc_html( $str ) {
                         </div>
                         <button type="submit" name="save_asaas_settings" class="btn btn-primary" style="width: 100%;">
                             <i data-lucide="save"></i>
-                            Salvar Configurações
+                            Salvar Asaas
                         </button>
                     </form>
                 </div>
 
+                <!-- Card: Formulário Conta Azul -->
+                <div class="card" style="<?php echo $active_gateway === 'contaazul' ? 'border: 1px solid rgba(124, 58, 237, 0.4);' : ''; ?>">
+                    <div class="card-header">
+                        <h2>
+                            <i data-lucide="landmark" style="color: var(--accent);"></i>
+                            Integração Conta Azul (OAuth 2.0)
+                        </h2>
+                        <span class="badge <?php echo $ca_class; ?>">
+                            <i data-lucide="activity" style="width: 14px; height: 14px;"></i>
+                            <?php echo $ca_status; ?>
+                        </span>
+                    </div>
+
+                    <form action="index.php?view=settings" method="POST">
+                        <div class="form-group">
+                            <label for="contaazul_client_id">Client ID</label>
+                            <input type="text" name="contaazul_client_id" id="contaazul_client_id" value="<?php echo esc_html( get_setting( 'contaazul_client_id' ) ); ?>" placeholder="Ex: a1b2c3d4...">
+                        </div>
+                        <div class="form-group">
+                            <label for="contaazul_client_secret">Client Secret</label>
+                            <input type="password" name="contaazul_client_secret" id="contaazul_client_secret" value="<?php echo esc_html( get_setting( 'contaazul_client_secret' ) ); ?>" placeholder="••••••••••••••••">
+                        </div>
+                        <div class="form-group">
+                            <label for="contaazul_redirect_uri">Redirect URI de Retorno</label>
+                            <input type="url" name="contaazul_redirect_uri" id="contaazul_redirect_uri" value="<?php echo esc_html( get_setting( 'contaazul_redirect_uri', ContaAzulClient::get_default_redirect_uri() ) ); ?>" placeholder="https://.../api/callback-contaazul.php">
+                            <p style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">Cadastre esta exata URL no Portal do Desenvolvedor Conta Azul.</p>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="submit" name="save_contaazul_settings" class="btn btn-secondary" style="flex: 1;">
+                                <i data-lucide="save"></i>
+                                Salvar Credenciais
+                            </button>
+                            <?php if ( ! empty( $ca_client_id ) ): ?>
+                                <?php if ( $ca_is_connected ): ?>
+                                    <a href="index.php?view=settings&disconnect_contaazul=1" class="btn btn-danger" style="flex: 1; text-align: center; text-decoration: none;" onclick="return confirm('Desconectar Conta Azul?')">
+                                        <i data-lucide="log-out"></i>
+                                        Desconectar
+                                    </a>
+                                <?php else: ?>
+                                    <a href="<?php echo esc_html( ContaAzulClient::get_authorize_url() ); ?>" class="btn btn-primary" style="flex: 1; text-align: center; text-decoration: none;">
+                                        <i data-lucide="log-in"></i>
+                                        Conectar via OAuth
+                                    </a>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+                    </form>
+
+                    <div style="margin-top: 16px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 12px; color: var(--text-sub);">
+                        ℹ️ <strong>URL de Polling/Cron:</strong><br>
+                        <code><?php echo (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['REQUEST_URI'] ?? ''), '/\\') . "/api/cron-contaazul.php"; ?></code>
+                    </div>
+                </div>
+
                 <!-- Card: Checkout Público -->
-                <div class="card">
+                <div class="card" style="grid-column: span 2;">
                     <h2>
                         <i data-lucide="shopping-cart" style="color: var(--accent);"></i>
                         Checkout Público Integrado
                     </h2>
                     <p style="font-size: 14px; color: var(--text-sub); margin: 12px 0 20px 0;">
-                        Sua aplicação possui uma página de vendas/checkout pública pronta com integração direta ao Asaas (PIX e Cartão).
+                        Sua aplicação possui uma página de vendas/checkout pública pronta, adaptada para o gateway ativo (<strong><?php echo $active_gateway === 'contaazul' ? 'Conta Azul' : 'Asaas'; ?></strong>).
                     </p>
 
                     <?php $checkout_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['REQUEST_URI'] ?? ''), '/\\') . "/checkout.php"; ?>
