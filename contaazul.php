@@ -232,55 +232,38 @@ class ContaAzulClient {
         $name     = trim( $customer_data['name'] ?? '' );
         $phone    = preg_replace( '/\D/', '', $customer_data['phone'] ?? '' );
 
-        // 1. Buscar cliente por documento ou e-mail
-        $search_query = ! empty( $cpfCnpj ) ? $cpfCnpj : $email;
-        $search = self::api_request( '/v1/customers?search=' . urlencode( $search_query ) );
+        // 1. Buscar pessoa por documento ou e-mail na API v2
+        $filter = ! empty( $cpfCnpj ) ? ( 'documentos=' . urlencode( $cpfCnpj ) ) : ( 'emails=' . urlencode( $email ) );
+        $search = self::api_request( '/v1/pessoas?' . $filter );
 
-        if ( ! empty( $search['data'] ) && is_array( $search['data'] ) ) {
-            $items = isset( $search['data']['items'] ) ? $search['data']['items'] : $search['data'];
+        if ( ! empty( $search['data'] ) ) {
+            $items = $search['data']['items'] ?? ( is_array( $search['data'] ) && isset( $search['data'][0] ) ? $search['data'] : [] );
             if ( ! empty( $items[0]['id'] ) ) {
                 return [ 'success' => true, 'customer_id' => $items[0]['id'] ];
             }
         }
 
-        // 2. Criar cliente caso não exista
-        $is_cnpj = ( strlen( $cpfCnpj ) > 11 );
+        // 2. Cadastrar pessoa na API v2 (/v1/pessoas)
+        $is_cnpj     = ( strlen( $cpfCnpj ) > 11 );
+        $tipo_pessoa = $is_cnpj ? 'Jurídica' : 'Física';
+
         $payload = [
-            'name'         => $name,
-            'company_name' => $name,
-            'email'        => $email,
-            'document'     => $cpfCnpj,
-            'phone'        => $phone,
-            'person_type'  => $is_cnpj ? 'LEGAL' : 'NATURAL',
-        ];
-
-        $create = self::api_request( '/v1/customers', 'POST', $payload );
-
-        if ( in_array( $create['code'], [ 200, 201 ] ) && ! empty( $create['data']['id'] ) ) {
-            return [ 'success' => true, 'customer_id' => $create['data']['id'] ];
-        }
-
-        // Tentar endpoint alternativo /v1/pessoas
-        $payload_pessoas = [
             'nome'        => $name,
+            'tipo_pessoa' => $tipo_pessoa,
+            'documento'   => $cpfCnpj,
             'email'       => $email,
-            'cpf_cnpj'    => $cpfCnpj,
             'telefone'    => $phone,
-            'tipo_pessoa' => $is_cnpj ? 'JURIDICA' : 'FISICA',
         ];
-        $create_pessoas = self::api_request( '/v1/pessoas', 'POST', $payload_pessoas );
-        if ( in_array( $create_pessoas['code'], [ 200, 201 ] ) && ! empty( $create_pessoas['data']['id'] ) ) {
-            return [ 'success' => true, 'customer_id' => $create_pessoas['data']['id'] ];
+
+        $create = self::api_request( '/v1/pessoas', 'POST', $payload );
+        $customer_id = $create['data']['id'] ?? ( $create['data']['uuid'] ?? '' );
+
+        if ( in_array( $create['code'], [ 200, 201 ] ) && ! empty( $customer_id ) ) {
+            return [ 'success' => true, 'customer_id' => $customer_id ];
         }
 
-        $err = self::extract_error_message( $create, 'Erro ao cadastrar contato no Conta Azul.' );
-        if ( $create_pessoas['code'] !== 404 && ! empty( $create_pessoas['data'] ) ) {
-            $err_alt = self::extract_error_message( $create_pessoas, '' );
-            if ( $err_alt ) {
-                $err .= ' | ' . $err_alt;
-            }
-        }
-        return [ 'success' => false, 'message' => trim( $err, ' | ' ) ];
+        $err = self::extract_error_message( $create, 'Erro ao cadastrar pessoa no Conta Azul.' );
+        return [ 'success' => false, 'message' => $err ];
     }
 
     /**
