@@ -250,11 +250,23 @@ class ContaAzulClient {
         $payload = [
             'nome'        => $name,
             'tipo_pessoa' => $tipo_pessoa,
-            'perfis'      => [ [ 'cliente' => true ] ],
-            'documento'   => $cpfCnpj,
+            'perfis'      => [
+                [ 'tipo_perfil' => 'Cliente' ],
+            ],
             'email'       => $email,
-            'telefone'    => $phone,
         ];
+
+        if ( ! empty( $cpfCnpj ) ) {
+            if ( $is_cnpj ) {
+                $payload['cnpj'] = $cpfCnpj;
+            } else {
+                $payload['cpf'] = $cpfCnpj;
+            }
+        }
+
+        if ( ! empty( $phone ) ) {
+            $payload['telefone_celular'] = $phone;
+        }
 
         $create = self::api_request( '/v1/pessoas', 'POST', $payload );
         $customer_id = $create['data']['id'] ?? ( $create['data']['uuid'] ?? '' );
