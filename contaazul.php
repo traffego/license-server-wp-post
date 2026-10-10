@@ -250,6 +250,7 @@ class ContaAzulClient {
         $payload = [
             'nome'        => $name,
             'tipo_pessoa' => $tipo_pessoa,
+            'tipo_perfil' => 'Cliente',
             'documento'   => $cpfCnpj,
             'email'       => $email,
             'telefone'    => $phone,
