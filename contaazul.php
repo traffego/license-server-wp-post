@@ -244,12 +244,12 @@ class ContaAzulClient {
         }
 
         // 2. Cadastrar pessoa na API v2 (/v1/pessoas)
-        $is_cnpj = ( strlen( $cpfCnpj ) > 11 );
-        $tipo    = $is_cnpj ? 'JURIDICA' : 'FISICA';
+        $is_cnpj     = ( strlen( $cpfCnpj ) > 11 );
+        $tipo_pessoa = $is_cnpj ? 'Jurídica' : 'Física';
 
         $payload = [
             'nome'        => $name,
-            'tipo'        => $tipo,
+            'tipo_pessoa' => $tipo_pessoa,
             'tipo_perfil' => [ 'CLIENTE' ],
             'documento'   => $cpfCnpj,
             'email'       => $email,
