@@ -212,12 +212,13 @@ class SyncPayClient {
 
         $res = self::api_request( '/api/partner/v1/card-tokens', 'POST', $payload );
 
-        if ( in_array( $res['code'], [ 200, 201 ] ) && ! empty( $res['data']['data']['token'] ) ) {
+        $token = $res['data']['data']['token'] ?? ( $res['data']['token'] ?? '' );
+        if ( in_array( $res['code'], [ 200, 201 ] ) && ! empty( $token ) ) {
             return [
                 'success' => true,
-                'token'   => $res['data']['data']['token'],
-                'brand'   => $res['data']['data']['brand'] ?? '',
-                'last4'   => $res['data']['data']['last4'] ?? '',
+                'token'   => $token,
+                'brand'   => $res['data']['data']['brand'] ?? ( $res['data']['brand'] ?? '' ),
+                'last4'   => $res['data']['data']['last4'] ?? ( $res['data']['last4'] ?? '' ),
             ];
         }
 
@@ -246,10 +247,36 @@ class SyncPayClient {
             return [ 'success' => false, 'message' => 'Token do cartão de crédito não fornecido.' ];
         }
 
-        $ip = $params['ip'] ?? ( $_SERVER['HTTP_CF_CONNECTING_IP'] ?? ( $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ( $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1' ) ) );
+        $ip = $params['ip'] ?? ( $_SERVER['HTTP_CF_CONNECTING_IP'] ?? ( $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ( $_SERVER['REMOTE_ADDR'] ?? '177.136.244.18' ) ) );
         if ( strpos( $ip, ',' ) !== false ) {
             $ip = trim( explode( ',', $ip )[0] );
         }
+        if ( empty( $ip ) || $ip === '127.0.0.1' || $ip === '::1' ) {
+            $ip = '177.136.244.18';
+        }
+
+        // Montar dados do cliente
+        $client_data = [
+            'name'     => $name,
+            'email'    => $email,
+            'document' => [
+                'type'   => strlen( $cpf ) > 11 ? 'cnpj' : 'cpf',
+                'number' => $cpf,
+            ],
+        ];
+
+        // Normalizar telefone com DDI (55) se fornecido
+        if ( ! empty( $phone ) ) {
+            if ( ( strlen( $phone ) === 10 || strlen( $phone ) === 11 ) && ! str_starts_with( $phone, '55' ) ) {
+                $phone = '55' . $phone;
+            }
+            $client_data['phone'] = $phone;
+        }
+
+        $scheme   = ( isset( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] === 'on' ) ? 'https' : 'http';
+        $host     = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $uri      = $_SERVER['REQUEST_URI'] ?? '/checkout.php';
+        $page_url = $params['page_url'] ?? ( $scheme . '://' . $host . $uri );
 
         $payload = [
             'amount'       => round( $amount, 2 ),
@@ -259,30 +286,23 @@ class SyncPayClient {
             'card'         => [
                 'token' => $card_token,
             ],
-            'client'       => [
-                'name'     => $name,
-                'email'    => $email,
-                'phone'    => $phone,
-                'document' => [
-                    'type'   => 'cpf',
-                    'number' => $cpf,
-                ],
-            ],
+            'client'       => $client_data,
             'device'       => [
                 'ip'         => $ip,
                 'user_agent' => substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? 'Mozilla/5.0' ), 0, 255 ),
-                'page_url'   => substr( (string) ( $params['page_url'] ?? self::get_default_webhook_url() ), 0, 255 ),
+                'page_url'   => substr( (string) $page_url, 0, 255 ),
                 'metadata'   => (object) [],
             ],
         ];
 
         $res = self::api_request( '/api/partner/v1/credit-card', 'POST', $payload );
 
-        if ( in_array( $res['code'], [ 200, 201 ] ) && ! empty( $res['data']['data']['transaction_id'] ) ) {
+        $tx_id = $res['data']['data']['transaction_id'] ?? ( $res['data']['transaction_id'] ?? '' );
+        if ( in_array( $res['code'], [ 200, 201 ] ) && ! empty( $tx_id ) ) {
             return [
                 'success'        => true,
-                'transaction_id' => $res['data']['data']['transaction_id'],
-                'message'        => $res['data']['data']['message'] ?? 'Cobrança no cartão submetida com sucesso.',
+                'transaction_id' => $tx_id,
+                'message'        => $res['data']['data']['message'] ?? ( $res['data']['message'] ?? 'Cobrança no cartão submetida com sucesso.' ),
                 'raw'            => $res['data'],
             ];
         }

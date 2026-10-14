@@ -111,20 +111,56 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
             exit;
 
         } elseif ( $payment_method === 'CREDIT_CARD' ) {
-            $card_number    = preg_replace( '/\D/', '', $_POST['card_number'] ?? '' );
-            $card_holder    = trim( $_POST['card_holder'] ?? '' );
-            $card_exp       = trim( $_POST['card_expiry'] ?? '' );
-            $card_cvv       = trim( $_POST['card_cvv'] ?? '' );
-            $card_exp_parts = explode( '/', $card_exp );
-            $exp_month      = trim( $card_exp_parts[0] ?? '' );
-            $exp_year       = trim( $card_exp_parts[1] ?? '' );
+            $card_number = preg_replace( '/\D/', '', $_POST['card_number'] ?? '' );
+            $card_holder = trim( $_POST['card_holder'] ?? '' );
+            $card_cvv    = preg_replace( '/\D/', '', $_POST['card_cvv'] ?? ( $_POST['card_ccv'] ?? '' ) );
 
+            // Extrair mês e ano (suporta tanto campos separados card_month/card_year quanto card_expiry 'MM/AA')
+            $card_month = trim( $_POST['card_month'] ?? '' );
+            $card_year  = trim( $_POST['card_year'] ?? '' );
+
+            if ( empty( $card_month ) || empty( $card_year ) ) {
+                $card_exp = trim( $_POST['card_expiry'] ?? '' );
+                if ( ! empty( $card_exp ) && strpos( $card_exp, '/' ) !== false ) {
+                    $card_exp_parts = explode( '/', $card_exp );
+                    $card_month     = trim( $card_exp_parts[0] ?? '' );
+                    $card_year      = trim( $card_exp_parts[1] ?? '' );
+                }
+            }
+
+            $exp_month = sprintf( '%02d', (int) $card_month );
+            $exp_year  = $card_year;
             if ( strlen( $exp_year ) === 2 ) {
                 $exp_year = '20' . $exp_year;
             }
 
-            if ( empty( $card_number ) || empty( $card_holder ) || empty( $exp_month ) || empty( $exp_year ) || empty( $card_cvv ) ) {
+            // Validações preventivas de cartão
+            if ( empty( $card_number ) || empty( $card_holder ) || empty( $card_month ) || empty( $card_year ) || empty( $card_cvv ) ) {
                 echo json_encode( [ 'success' => false, 'message' => 'Por favor, preencha todos os dados do cartão de crédito.' ] );
+                exit;
+            }
+
+            if ( strlen( $card_number ) < 13 || strlen( $card_number ) > 19 ) {
+                echo json_encode( [ 'success' => false, 'message' => 'Número do cartão inválido (deve conter entre 13 e 19 dígitos).' ] );
+                exit;
+            }
+
+            $month_int = (int) $exp_month;
+            if ( $month_int < 1 || $month_int > 12 ) {
+                echo json_encode( [ 'success' => false, 'message' => 'Mês de vencimento inválido. Informe um mês entre 01 e 12.' ] );
+                exit;
+            }
+
+            $year_int      = (int) $exp_year;
+            $current_year  = (int) date( 'Y' );
+            $current_month = (int) date( 'n' );
+            if ( strlen( $exp_year ) !== 4 || $year_int < $current_year || ( $year_int === $current_year && $month_int < $current_month ) ) {
+                echo json_encode( [ 'success' => false, 'message' => 'Cartão de crédito expirado ou data de vencimento inválida.' ] );
+                exit;
+            }
+
+            if ( strlen( $card_cvv ) < 3 || strlen( $card_cvv ) > 4 ) {
+                echo json_encode( [ 'success' => false, 'message' => 'Código de segurança (CVV) inválido (deve ter 3 ou 4 dígitos).' ] );
                 exit;
             }
 
@@ -143,6 +179,8 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
 
             $card_token = $seal_res['token'];
 
+            $current_page_url = ( ( isset( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] === 'on' ) ? 'https' : 'http' ) . '://' . ( $_SERVER['HTTP_HOST'] ?? 'localhost' ) . ( $_SERVER['REQUEST_URI'] ?? '/checkout.php' );
+
             $charge_res = SyncPayClient::create_card_charge( [
                 'amount'       => $amount,
                 'description'  => $plan_desc,
@@ -152,6 +190,7 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
                 'email'        => $email,
                 'phone'        => $phone,
                 'cpf'          => $cpfCnpj,
+                'page_url'     => $current_page_url,
             ] );
 
             if ( ! $charge_res['success'] ) {
@@ -273,7 +312,7 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
             'number'      => preg_replace( '/\D/', '', $_POST['card_number'] ?? '' ),
             'expiryMonth' => trim( $_POST['card_month'] ?? '' ),
             'expiryYear'  => trim( $_POST['card_year'] ?? '' ),
-            'ccv'         => trim( $_POST['card_ccv'] ?? '' ),
+            'ccv'         => trim( $_POST['card_cvv'] ?? ( $_POST['card_ccv'] ?? '' ) ),
         ];
         $payment_payload['creditCardHolderInfo'] = [
             'name'          => $name,
@@ -659,7 +698,7 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
             </ul>
         </div>
         <div style="font-size: 11px; color: var(--text-sub); margin-top: 30px;">
-            Pagamento 100% seguro via Asaas.
+            Pagamento 100% seguro via <?php echo ( $active_gateway === 'syncpay' ) ? 'SyncPay' : 'Asaas'; ?>.
         </div>
     </div>
 
@@ -742,24 +781,24 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
                 <div id="card-fields" style="display: none;">
                     <div class="form-group">
                         <label for="card_number">Número do Cartão</label>
-                        <input type="text" id="card_number" name="card_number" placeholder="0000 0000 0000 0000">
+                        <input type="text" id="card_number" name="card_number" placeholder="0000 0000 0000 0000" inputmode="numeric" autocomplete="cc-number" maxlength="19">
                     </div>
                     <div class="form-group">
                         <label for="card_holder">Nome no Cartão</label>
-                        <input type="text" id="card_holder" name="card_holder" placeholder="Como impresso no cartão">
+                        <input type="text" id="card_holder" name="card_holder" placeholder="Como impresso no cartão" autocomplete="cc-name">
                     </div>
                     <div style="display: flex; gap: 10px;">
                         <div class="form-group" style="flex:1;">
                             <label for="card_month">Mês (MM)</label>
-                            <input type="text" id="card_month" name="card_month" placeholder="12">
+                            <input type="text" id="card_month" name="card_month" placeholder="12" inputmode="numeric" autocomplete="cc-exp-month" maxlength="2">
                         </div>
                         <div class="form-group" style="flex:1;">
                             <label for="card_year">Ano (AAAA)</label>
-                            <input type="text" id="card_year" name="card_year" placeholder="2028">
+                            <input type="text" id="card_year" name="card_year" placeholder="2028" inputmode="numeric" autocomplete="cc-exp-year" maxlength="4">
                         </div>
                         <div class="form-group" style="flex:1;">
-                            <label for="card_ccv">CVV</label>
-                            <input type="text" id="card_ccv" name="card_ccv" placeholder="123">
+                            <label for="card_cvv">CVV</label>
+                            <input type="text" id="card_cvv" name="card_cvv" placeholder="123" inputmode="numeric" autocomplete="cc-csc" maxlength="4">
                         </div>
                     </div>
                 </div>
