@@ -99,16 +99,15 @@ try {
 
     // Inicializar configurações padrões se vazias
     $defaults = [
-        'active_gateway'          => 'asaas',
-        'asaas_api_key'           => '',
-        'asaas_environment'       => 'sandbox',
-        'asaas_payment_link'      => '',
-        'contaazul_client_id'     => '',
-        'contaazul_client_secret' => '',
-        'contaazul_redirect_uri'  => '',
-        'contaazul_access_token'  => '',
-        'contaazul_refresh_token' => '',
-        'contaazul_token_expires' => '0',
+        'active_gateway'        => 'asaas',
+        'asaas_api_key'         => '',
+        'asaas_environment'     => 'sandbox',
+        'asaas_payment_link'    => '',
+        'syncpay_client_id'     => '',
+        'syncpay_client_secret' => '',
+        'syncpay_access_token'  => '',
+        'syncpay_token_expires' => '0',
+        'syncpay_webhook_token' => '',
     ];
     foreach ( $defaults as $key => $val ) {
         $stmt = $pdo->prepare( "INSERT IGNORE INTO settings (key_name, key_value) VALUES (?, ?)" );

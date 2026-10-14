@@ -7,7 +7,7 @@
 session_start();
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
-require_once __DIR__ . '/contaazul.php';
+require_once __DIR__ . '/syncpay.php';
 
 // ── Autenticação Simples ──────────────────────────────────────────────────────
 $authenticated = isset( $_SESSION['logged_in'] ) && $_SESSION['logged_in'] === true;
@@ -295,9 +295,9 @@ if ( isset( $_GET['edit_plan'] ) ) {
 
 // ── Handlers de Configurações ─────────────────────────────────────────────────
 if ( isset( $_POST['save_active_gateway'] ) ) {
-    $active_gw = in_array( $_POST['active_gateway'] ?? '', [ 'asaas', 'contaazul' ] ) ? $_POST['active_gateway'] : 'asaas';
+    $active_gw = in_array( $_POST['active_gateway'] ?? '', [ 'asaas', 'syncpay' ] ) ? $_POST['active_gateway'] : 'asaas';
     set_setting( 'active_gateway', $active_gw );
-    $message = "Gateway de pagamento padrão alterado para: <strong>" . ( $active_gw === 'contaazul' ? 'Conta Azul' : 'Asaas' ) . "</strong>";
+    $message = "Gateway de pagamento padrão alterado para: <strong>" . ( $active_gw === 'syncpay' ? 'SyncPay' : 'Asaas' ) . "</strong>";
 }
 
 if ( isset( $_POST['save_asaas_settings'] ) ) {
@@ -315,33 +315,21 @@ if ( isset( $_POST['save_asaas_settings'] ) ) {
     }
 }
 
-if ( isset( $_POST['save_contaazul_settings'] ) ) {
-    $ca_id     = trim( $_POST['contaazul_client_id'] ?? '' );
-    $ca_secret = trim( $_POST['contaazul_client_secret'] ?? '' );
-    $ca_redir  = trim( $_POST['contaazul_redirect_uri'] ?? '' );
-    
+if ( isset( $_POST['save_syncpay_settings'] ) ) {
+    $sp_id     = trim( $_POST['syncpay_client_id'] ?? '' );
+    $sp_secret = trim( $_POST['syncpay_client_secret'] ?? '' );
+    $sp_token  = trim( $_POST['syncpay_webhook_token'] ?? '' );
+
     try {
-        set_setting( 'contaazul_client_id', $ca_id );
-        set_setting( 'contaazul_client_secret', $ca_secret );
-        set_setting( 'contaazul_redirect_uri', $ca_redir );
-        $message = "Configurações da Conta Azul salvas com sucesso.";
+        set_setting( 'syncpay_client_id', $sp_id );
+        set_setting( 'syncpay_client_secret', $sp_secret );
+        set_setting( 'syncpay_webhook_token', $sp_token );
+        set_setting( 'syncpay_access_token', '' );
+        set_setting( 'syncpay_token_expires', '0' );
+        $message = "Configurações da SyncPay salvas com sucesso.";
     } catch ( Exception $e ) {
-        $error = "Erro ao salvar Conta Azul: " . $e->getMessage();
+        $error = "Erro ao salvar SyncPay: " . $e->getMessage();
     }
-}
-
-if ( isset( $_GET['disconnect_contaazul'] ) ) {
-    set_setting( 'contaazul_access_token', '' );
-    set_setting( 'contaazul_refresh_token', '' );
-    set_setting( 'contaazul_token_expires', '0' );
-    $message = "Conta Azul desconectada com sucesso.";
-}
-
-if ( isset( $_GET['ca_success'] ) ) {
-    $message = "Conta Azul conectada com sucesso via OAuth 2.0!";
-}
-if ( isset( $_GET['ca_error'] ) ) {
-    $error = "Erro na conexão Conta Azul: " . htmlspecialchars( $_GET['ca_error'] );
 }
 
 // ── Dados para Renderização das Telas ─────────────────────────────────────────
@@ -390,14 +378,24 @@ if ( ! empty( $db_api_key ) ) {
     }
 }
 
-// Testar Conexão Conta Azul
-$active_gateway   = get_setting( 'active_gateway', 'asaas' );
-$ca_client_id     = get_setting( 'contaazul_client_id', '' );
-$ca_token         = get_setting( 'contaazul_access_token', '' );
-$ca_expires       = (int) get_setting( 'contaazul_token_expires', '0' );
-$ca_is_connected  = ! empty( $ca_token ) && $ca_expires > time();
-$ca_status        = $ca_is_connected ? 'Conectado (Válido até ' . date( 'd/m H:i', $ca_expires ) . ')' : ( ! empty( $ca_client_id ) ? 'Pronto para Login OAuth' : 'Não configurado' );
-$ca_class         = $ca_is_connected ? 'status-active' : 'status-inactive';
+// Testar Conexão SyncPay
+$syncpay_status = 'Não configurado';
+$syncpay_class  = 'status-inactive';
+$sp_client_id   = get_setting( 'syncpay_client_id', '' );
+$sp_client_sec  = get_setting( 'syncpay_client_secret', '' );
+
+if ( ! empty( $sp_client_id ) && ! empty( $sp_client_sec ) ) {
+    $sp_test_token = SyncPayClient::get_valid_access_token();
+    if ( ! empty( $sp_test_token ) ) {
+        $syncpay_status = 'Conectado (Token Ativo)';
+        $syncpay_class  = 'status-active';
+    } else {
+        $syncpay_status = 'Erro de Autenticação';
+        $syncpay_class  = 'status-error';
+    }
+}
+
+$active_gateway = get_setting( 'active_gateway', 'asaas' );
 
 function selected( $val1, $val2, $echo = true ) {
     $result = $val1 === $val2 ? 'selected="selected"' : '';
@@ -707,8 +705,8 @@ function esc_html( $str ) {
                         <strong>Asaas</strong> (PIX & Cartão Transparente + Webhooks)
                     </label>
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 15px;">
-                        <input type="radio" name="active_gateway" value="contaazul" <?php echo $active_gateway === 'contaazul' ? 'checked' : ''; ?> style="width: auto;">
-                        <strong>Conta Azul</strong> (OAuth 2.0 + Cobrança/ERP)
+                        <input type="radio" name="active_gateway" value="syncpay" <?php echo $active_gateway === 'syncpay' ? 'checked' : ''; ?> style="width: auto;">
+                        <strong>SyncPay</strong> (PIX Cash-In + Cartão Tokenizado + Webhooks)
                     </label>
                     <button type="submit" name="save_active_gateway" class="btn btn-primary" style="margin-left: auto;">
                         <i data-lucide="check"></i>
@@ -754,57 +752,41 @@ function esc_html( $str ) {
                     </form>
                 </div>
 
-                <!-- Card: Formulário Conta Azul -->
-                <div class="card" style="<?php echo $active_gateway === 'contaazul' ? 'border: 1px solid rgba(124, 58, 237, 0.4);' : ''; ?>">
+                <!-- Card: Formulário SyncPay -->
+                <div class="card" style="<?php echo $active_gateway === 'syncpay' ? 'border: 1px solid rgba(124, 58, 237, 0.4);' : ''; ?>">
                     <div class="card-header">
                         <h2>
-                            <i data-lucide="landmark" style="color: var(--accent);"></i>
-                            Integração Conta Azul (OAuth 2.0)
+                            <i data-lucide="zap" style="color: var(--accent);"></i>
+                            Integração SyncPay
                         </h2>
-                        <span class="badge <?php echo $ca_class; ?>">
+                        <span class="badge <?php echo $syncpay_class; ?>">
                             <i data-lucide="activity" style="width: 14px; height: 14px;"></i>
-                            <?php echo $ca_status; ?>
+                            <?php echo $syncpay_status; ?>
                         </span>
                     </div>
 
                     <form action="index.php?view=settings" method="POST">
                         <div class="form-group">
-                            <label for="contaazul_client_id">Client ID</label>
-                            <input type="text" name="contaazul_client_id" id="contaazul_client_id" value="<?php echo esc_html( get_setting( 'contaazul_client_id' ) ); ?>" placeholder="Ex: a1b2c3d4...">
+                            <label for="syncpay_client_id">Client ID (UUID)</label>
+                            <input type="text" name="syncpay_client_id" id="syncpay_client_id" value="<?php echo esc_html( get_setting( 'syncpay_client_id' ) ); ?>" placeholder="Ex: 89210cff-1a37-4cd0-825d-45fecd8e77bb">
                         </div>
                         <div class="form-group">
-                            <label for="contaazul_client_secret">Client Secret</label>
-                            <input type="password" name="contaazul_client_secret" id="contaazul_client_secret" value="<?php echo esc_html( get_setting( 'contaazul_client_secret' ) ); ?>" placeholder="••••••••••••••••">
+                            <label for="syncpay_client_secret">Client Secret (UUID)</label>
+                            <input type="password" name="syncpay_client_secret" id="syncpay_client_secret" value="<?php echo esc_html( get_setting( 'syncpay_client_secret' ) ); ?>" placeholder="••••••••••••••••">
                         </div>
                         <div class="form-group">
-                            <label for="contaazul_redirect_uri">Redirect URI de Retorno</label>
-                            <input type="url" name="contaazul_redirect_uri" id="contaazul_redirect_uri" value="<?php echo esc_html( get_setting( 'contaazul_redirect_uri', ContaAzulClient::get_default_redirect_uri() ) ); ?>" placeholder="https://.../api/callback-contaazul.php">
-                            <p style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">Cadastre esta exata URL no Portal do Desenvolvedor Conta Azul.</p>
+                            <label for="syncpay_webhook_token">Token Secreto do Webhook (Opcional)</label>
+                            <input type="password" name="syncpay_webhook_token" id="syncpay_webhook_token" value="<?php echo esc_html( get_setting( 'syncpay_webhook_token' ) ); ?>" placeholder="Bearer token configurado no webhook da SyncPay">
                         </div>
-                        <div style="display: flex; gap: 8px;">
-                            <button type="submit" name="save_contaazul_settings" class="btn btn-secondary" style="flex: 1;">
-                                <i data-lucide="save"></i>
-                                Salvar Credenciais
-                            </button>
-                            <?php if ( ! empty( $ca_client_id ) ): ?>
-                                <?php if ( $ca_is_connected ): ?>
-                                    <a href="index.php?view=settings&disconnect_contaazul=1" class="btn btn-danger" style="flex: 1; text-align: center; text-decoration: none;" onclick="return confirm('Desconectar Conta Azul?')">
-                                        <i data-lucide="log-out"></i>
-                                        Desconectar
-                                    </a>
-                                <?php else: ?>
-                                    <a href="<?php echo esc_html( ContaAzulClient::get_authorize_url() ); ?>" class="btn btn-primary" style="flex: 1; text-align: center; text-decoration: none;">
-                                        <i data-lucide="log-in"></i>
-                                        Conectar via OAuth
-                                    </a>
-                                <?php endif; ?>
-                            <?php endif; ?>
-                        </div>
+                        <button type="submit" name="save_syncpay_settings" class="btn btn-primary" style="width: 100%;">
+                            <i data-lucide="save"></i>
+                            Salvar SyncPay
+                        </button>
                     </form>
 
                     <div style="margin-top: 16px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 12px; color: var(--text-sub);">
-                        ℹ️ <strong>URL de Polling/Cron:</strong><br>
-                        <code><?php echo (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['REQUEST_URI'] ?? ''), '/\\') . "/api/cron-contaazul.php"; ?></code>
+                        🔔 <strong>URL do Webhook SyncPay:</strong><br>
+                        <code><?php echo esc_html( SyncPayClient::get_default_webhook_url() ); ?></code>
                     </div>
                 </div>
 
@@ -815,7 +797,7 @@ function esc_html( $str ) {
                         Checkout Público Integrado
                     </h2>
                     <p style="font-size: 14px; color: var(--text-sub); margin: 12px 0 20px 0;">
-                        Sua aplicação possui uma página de vendas/checkout pública pronta, adaptada para o gateway ativo (<strong><?php echo $active_gateway === 'contaazul' ? 'Conta Azul' : 'Asaas'; ?></strong>).
+                        Sua aplicação possui uma página de vendas/checkout pública pronta, adaptada para o gateway ativo (<strong><?php echo $active_gateway === 'syncpay' ? 'SyncPay' : 'Asaas'; ?></strong>).
                     </p>
 
                     <?php $checkout_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['REQUEST_URI'] ?? ''), '/\\') . "/checkout.php"; ?>

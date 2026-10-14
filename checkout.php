@@ -6,7 +6,7 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
-require_once __DIR__ . '/contaazul.php';
+require_once __DIR__ . '/syncpay.php';
 
 // Definir esc_html caso não exista (função do WordPress não disponível em contexto standalone)
 if ( ! function_exists( 'esc_html' ) ) {
@@ -50,74 +50,152 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         }
     }
 
-    // ── Fluxo Gateway: Conta Azul ─────────────────────────────────────────────
-    if ( $active_gateway === 'contaazul' ) {
-        $token = ContaAzulClient::get_valid_access_token();
+    // ── Fluxo Gateway: SyncPay ────────────────────────────────────────────────
+    if ( $active_gateway === 'syncpay' ) {
+        $token = SyncPayClient::get_valid_access_token();
         if ( empty( $token ) ) {
-            echo json_encode( [ 'success' => false, 'message' => 'Conta Azul não conectado. Por favor, autorize no painel de controle.' ] );
+            echo json_encode( [ 'success' => false, 'message' => 'SyncPay não configurado ou credenciais inválidas. Verifique no painel.' ] );
             exit;
         }
 
-        $cust_res = ContaAzulClient::get_or_create_customer( [
-            'name'    => $name,
-            'email'   => $email,
-            'cpfCnpj' => $cpfCnpj,
-            'phone'   => $phone,
-        ] );
+        if ( $payment_method === 'PIX' ) {
+            $pix_res = SyncPayClient::create_pix_charge( [
+                'amount'      => $amount,
+                'name'        => $name,
+                'cpf'         => $cpfCnpj,
+                'email'       => $email,
+                'phone'       => $phone,
+                'description' => $plan_desc,
+            ] );
 
-        if ( ! $cust_res['success'] ) {
-            echo json_encode( [ 'success' => false, 'message' => $cust_res['message'] ] );
-            exit;
-        }
-
-        $charge_res = ContaAzulClient::create_charge( [
-            'customer_id' => $cust_res['customer_id'],
-            'amount'      => $amount,
-            'description' => $plan_desc . ' - ' . $email,
-        ] );
-
-        if ( ! $charge_res['success'] ) {
-            echo json_encode( [ 'success' => false, 'message' => $charge_res['message'] ] );
-            exit;
-        }
-
-        $charge_id  = (string) $charge_res['charge_id'];
-        $payment_id = 'CA-' . $charge_id;
-        $final_license_key = '';
-
-        if ( ! empty( $renewal_key ) ) {
-            $stmt_check = $db->prepare( "SELECT * FROM licenses WHERE license_key = ? LIMIT 1" );
-            $stmt_check->execute( [ $renewal_key ] );
-            $existing_lic = $stmt_check->fetch();
-            if ( $existing_lic ) {
-                $final_license_key = $existing_lic['license_key'];
-                $stmt = $db->prepare( "UPDATE licenses SET status = 'PENDING', gateway = 'contaazul', gateway_reference_id = ?, asaas_subscription_id = ? WHERE license_key = ?" );
-                $stmt->execute( [ $charge_id, $payment_id, $final_license_key ] );
+            if ( ! $pix_res['success'] ) {
+                echo json_encode( [ 'success' => false, 'message' => $pix_res['message'] ] );
+                exit;
             }
-        }
 
-        if ( empty( $final_license_key ) ) {
-            $final_license_key = 'WPAIP-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) );
-            $stmt = $db->prepare( "INSERT INTO licenses (license_key, client_email, status, gateway, gateway_reference_id, asaas_customer_id, asaas_subscription_id) VALUES (?, ?, 'PENDING', 'contaazul', ?, ?, ?)" );
-            $stmt->execute( [ $final_license_key, $email, $charge_id, $cust_res['customer_id'], $payment_id ] );
-        }
+            $charge_id  = (string) $pix_res['identifier'];
+            $payment_id = 'SP-' . $charge_id;
+            $final_license_key = '';
 
-        echo json_encode( [
-            'success'        => true,
-            'gateway'        => 'contaazul',
-            'license_key'    => null,
-            'status'         => 'PENDING',
-            'payment_method' => $payment_method,
-            'payment_id'     => $payment_id,
-            'is_renewal'     => ! empty( $renewal_key ),
-            'payment_link'   => $charge_res['link'] ?? '',
-            'pix'            => ! empty( $charge_res['pix_code'] ) ? [
-                'payload'      => $charge_res['pix_code'],
-                'encodedImage' => $charge_res['pix_qr'] ?? '',
-            ] : null,
-            'message'        => 'Cobrança Conta Azul gerada. Aguardando confirmação do pagamento...',
-        ] );
-        exit;
+            if ( ! empty( $renewal_key ) ) {
+                $stmt_check = $db->prepare( "SELECT * FROM licenses WHERE license_key = ? LIMIT 1" );
+                $stmt_check->execute( [ $renewal_key ] );
+                $existing_lic = $stmt_check->fetch();
+                if ( $existing_lic ) {
+                    $final_license_key = $existing_lic['license_key'];
+                    $stmt = $db->prepare( "UPDATE licenses SET status = 'PENDING', gateway = 'syncpay', gateway_reference_id = ?, asaas_subscription_id = ? WHERE license_key = ?" );
+                    $stmt->execute( [ $charge_id, $payment_id, $final_license_key ] );
+                }
+            }
+
+            if ( empty( $final_license_key ) ) {
+                $final_license_key = 'WPAIP-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) );
+                $stmt = $db->prepare( "INSERT INTO licenses (license_key, client_email, status, gateway, gateway_reference_id, asaas_subscription_id) VALUES (?, ?, 'PENDING', 'syncpay', ?, ?)" );
+                $stmt->execute( [ $final_license_key, $email, $charge_id, $payment_id ] );
+            }
+
+            echo json_encode( [
+                'success'        => true,
+                'gateway'        => 'syncpay',
+                'license_key'    => null,
+                'status'         => 'PENDING',
+                'payment_method' => 'PIX',
+                'payment_id'     => $payment_id,
+                'is_renewal'     => ! empty( $renewal_key ),
+                'pix'            => [
+                    'payload'   => $pix_res['pix_code'],
+                    'qrCodeUrl' => 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' . urlencode( $pix_res['pix_code'] ),
+                ],
+                'message'        => 'Cobrança PIX SyncPay gerada com sucesso. Aguardando confirmação do pagamento...',
+            ] );
+            exit;
+
+        } elseif ( $payment_method === 'CREDIT_CARD' ) {
+            $card_number    = preg_replace( '/\D/', '', $_POST['card_number'] ?? '' );
+            $card_holder    = trim( $_POST['card_holder'] ?? '' );
+            $card_exp       = trim( $_POST['card_expiry'] ?? '' );
+            $card_cvv       = trim( $_POST['card_cvv'] ?? '' );
+            $card_exp_parts = explode( '/', $card_exp );
+            $exp_month      = trim( $card_exp_parts[0] ?? '' );
+            $exp_year       = trim( $card_exp_parts[1] ?? '' );
+
+            if ( strlen( $exp_year ) === 2 ) {
+                $exp_year = '20' . $exp_year;
+            }
+
+            if ( empty( $card_number ) || empty( $card_holder ) || empty( $exp_month ) || empty( $exp_year ) || empty( $card_cvv ) ) {
+                echo json_encode( [ 'success' => false, 'message' => 'Por favor, preencha todos os dados do cartão de crédito.' ] );
+                exit;
+            }
+
+            $seal_res = SyncPayClient::seal_card( [
+                'number'       => $card_number,
+                'holder_name'  => $card_holder,
+                'expiry_month' => $exp_month,
+                'expiry_year'  => $exp_year,
+                'cvv'          => $card_cvv,
+            ] );
+
+            if ( ! $seal_res['success'] ) {
+                echo json_encode( [ 'success' => false, 'message' => $seal_res['message'] ] );
+                exit;
+            }
+
+            $card_token = $seal_res['token'];
+
+            $charge_res = SyncPayClient::create_card_charge( [
+                'amount'       => $amount,
+                'description'  => $plan_desc,
+                'installments' => 1,
+                'card_token'   => $card_token,
+                'name'         => $name,
+                'email'        => $email,
+                'phone'        => $phone,
+                'cpf'          => $cpfCnpj,
+            ] );
+
+            if ( ! $charge_res['success'] ) {
+                echo json_encode( [ 'success' => false, 'message' => $charge_res['message'] ] );
+                exit;
+            }
+
+            $charge_id      = (string) $charge_res['transaction_id'];
+            $payment_id     = 'SP-' . $charge_id;
+            $status_imm     = SyncPayClient::check_transaction_status( $charge_id );
+            $initial_status = ( $status_imm === 'PAID' ) ? 'ACTIVE' : 'PENDING';
+            $final_license_key = '';
+
+            if ( ! empty( $renewal_key ) ) {
+                $stmt_check = $db->prepare( "SELECT * FROM licenses WHERE license_key = ? LIMIT 1" );
+                $stmt_check->execute( [ $renewal_key ] );
+                $existing_lic = $stmt_check->fetch();
+                if ( $existing_lic ) {
+                    $final_license_key = $existing_lic['license_key'];
+                    $stmt = $db->prepare( "UPDATE licenses SET status = ?, gateway = 'syncpay', gateway_reference_id = ?, asaas_subscription_id = ? WHERE license_key = ?" );
+                    $stmt->execute( [ $initial_status, $charge_id, $payment_id, $final_license_key ] );
+                }
+            }
+
+            if ( empty( $final_license_key ) ) {
+                $final_license_key = 'WPAIP-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) ) . '-' . strtoupper( bin2hex( random_bytes( 4 ) ) );
+                $stmt = $db->prepare( "INSERT INTO licenses (license_key, client_email, status, gateway, gateway_reference_id, asaas_subscription_id) VALUES (?, ?, ?, 'syncpay', ?, ?)" );
+                $stmt->execute( [ $final_license_key, $email, $initial_status, $charge_id, $payment_id ] );
+            }
+
+            $show_key = ( $initial_status === 'ACTIVE' );
+
+            echo json_encode( [
+                'success'        => true,
+                'gateway'        => 'syncpay',
+                'license_key'    => $show_key ? $final_license_key : null,
+                'status'         => $initial_status,
+                'payment_method' => 'CREDIT_CARD',
+                'payment_id'     => $payment_id,
+                'is_renewal'     => ! empty( $renewal_key ),
+                'message'        => $show_key ? 'Pagamento com cartão aprovado!' : 'Pagamento em análise pela operadora do cartão...',
+            ] );
+            exit;
+        }
     }
 
     // ── Fluxo Gateway: Asaas ──────────────────────────────────────────────────
@@ -291,20 +369,20 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         exit;
     }
 
-    // Se for pagamento gerado pelo Conta Azul (identificador CA-...)
-    if ( str_starts_with( $payment_id_check, 'CA-' ) ) {
-        $ca_id     = substr( $payment_id_check, 3 );
-        $ca_status = ContaAzulClient::check_charge_status( $ca_id );
-        $confirmed = ( $ca_status === 'PAID' );
+    // Se for pagamento gerado pela SyncPay (identificador SP-...)
+    if ( str_starts_with( $payment_id_check, 'SP-' ) ) {
+        $sp_id     = substr( $payment_id_check, 3 );
+        $sp_status = SyncPayClient::check_transaction_status( $sp_id );
+        $confirmed = ( $sp_status === 'PAID' );
         $license_key_output = null;
 
         if ( $confirmed ) {
             $db   = get_db_connection();
             $stmt = $db->prepare( "UPDATE licenses SET status = 'ACTIVE' WHERE (gateway_reference_id = ? OR asaas_subscription_id = ?) AND status != 'ACTIVE'" );
-            $stmt->execute( [ $ca_id, $payment_id_check ] );
+            $stmt->execute( [ $sp_id, $payment_id_check ] );
 
             $stmt2 = $db->prepare( "SELECT license_key FROM licenses WHERE (gateway_reference_id = ? OR asaas_subscription_id = ?) LIMIT 1" );
-            $stmt2->execute( [ $ca_id, $payment_id_check ] );
+            $stmt2->execute( [ $sp_id, $payment_id_check ] );
             $lic  = $stmt2->fetch();
             $license_key_output = $lic ? $lic['license_key'] : null;
         }
@@ -312,7 +390,7 @@ if ( $_SERVER['REQUEST_METHOD'] === 'POST' && isset( $_POST['action'] ) && $_POS
         echo json_encode( [
             'success'     => true,
             'confirmed'   => $confirmed,
-            'status'      => $ca_status,
+            'status'      => $sp_status,
             'license_key' => $license_key_output,
         ] );
         exit;
@@ -830,18 +908,34 @@ $first_price = ! empty( $plans[0]['price'] ) ? number_format( $plans[0]['price']
                 document.getElementById('pix-pending-area').style.display = 'block';
                 if (data.pix.encodedImage) {
                     document.getElementById('pix-image').src = 'data:image/png;base64,' + data.pix.encodedImage;
+                } else if (data.pix.qrCodeUrl) {
+                    document.getElementById('pix-image').src = data.pix.qrCodeUrl;
                 }
                 document.getElementById('pix-payload').value = data.pix.payload;
                 startPolling(data.payment_id);
             } else if (data.payment_link) {
-                // Link de Pagamento (Conta Azul ou gateway externo)
+                // Link de Pagamento externo
                 document.getElementById('pix-pending-area').style.display = 'block';
                 document.getElementById('pix-image').style.display = 'none';
                 document.getElementById('pix-payload').style.display = 'none';
                 document.getElementById('pix-pending-area').innerHTML = `
                     <h2 style="font-size: 20px; color: #a78bfa; margin-bottom: 6px;">Cobrança gerada com sucesso!</h2>
-                    <p style="font-size: 13px; color: var(--text-sub); margin-bottom: 16px;">Clique no botão abaixo para concluir o pagamento via Conta Azul. Esta tela atualizará automaticamente após a compensação.</p>
-                    <a href="${data.payment_link}" target="_blank" class="btn-submit" style="display:inline-block; text-align:center; text-decoration:none; margin-bottom:12px; padding:12px 20px;">🔗 Pagar via Conta Azul</a>
+                    <p style="font-size: 13px; color: var(--text-sub); margin-bottom: 16px;">Clique no botão abaixo para concluir o seu pagamento. Esta tela atualizará automaticamente após a compensação.</p>
+                    <a href="${data.payment_link}" target="_blank" class="btn-submit" style="display:inline-block; text-align:center; text-decoration:none; margin-bottom:12px; padding:12px 20px;">🔗 Acessar Link de Pagamento</a>
+                    <div id="pix-status-msg" style="margin-top: 18px; font-size: 13px; color: var(--text-sub); display:flex; align-items:center; justify-content:center; gap:8px;">
+                        <span id="pix-spinner" style="display:inline-block; width:14px; height:14px; border:2px solid #7c3aed; border-top-color:transparent; border-radius:50%; animation: spin 0.8s linear infinite;"></span>
+                        Aguardando confirmação do pagamento...
+                    </div>
+                `;
+                startPolling(data.payment_id);
+            } else if (data.payment_id) {
+                // Pagamento em análise (ex: Cartão de Crédito)
+                document.getElementById('pix-pending-area').style.display = 'block';
+                document.getElementById('pix-image').style.display = 'none';
+                document.getElementById('pix-payload').style.display = 'none';
+                document.getElementById('pix-pending-area').innerHTML = `
+                    <h2 style="font-size: 20px; color: #a78bfa; margin-bottom: 6px;">Processando Pagamento...</h2>
+                    <p style="font-size: 13px; color: var(--text-sub); margin-bottom: 16px;">Sua transação com cartão foi submetida e está sendo confirmada pela operadora.</p>
                     <div id="pix-status-msg" style="margin-top: 18px; font-size: 13px; color: var(--text-sub); display:flex; align-items:center; justify-content:center; gap:8px;">
                         <span id="pix-spinner" style="display:inline-block; width:14px; height:14px; border:2px solid #7c3aed; border-top-color:transparent; border-radius:50%; animation: spin 0.8s linear infinite;"></span>
                         Aguardando confirmação do pagamento...
